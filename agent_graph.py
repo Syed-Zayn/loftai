@@ -199,6 +199,7 @@ def generate_node(state: AgentState):
         3. Explain the business strategy based on uploaded PDFs.
         
         Tone: Direct, Analytical, Professional. No fluff. Do NOT act like 'LOFTY' the concierge.
+        CRITICAL INSTRUCTION: Once the user provides Name, Email, Phone, and Budget, you MUST call the 'generate_quote_and_deal' tool immediately. DO NOT provide a discovery call explanation until AFTER you have given the user the PDF quote link.
         """
         
         # Secret Key ko user message se hata dein taake LLM confuse na ho
@@ -324,3 +325,4 @@ async def get_app():
     app = workflow.compile(checkpointer=checkpointer)
 
     return app
+

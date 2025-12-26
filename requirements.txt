@@ -29,3 +29,4 @@ google-api-python-client
 google-auth
 langgraph-checkpoint-postgres
 schedule
+reportlab

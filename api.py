@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from fastapi import Response # For TwiML XML response
 from twilio_client import TwilioManager
 from drive_client import DriveManager
+from fastapi.staticfiles import StaticFiles
 # --- CUSTOM MODULES IMPORTS ---
 # Make sure these files exist in the same folder
 from agent_graph import get_app
@@ -22,6 +23,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("LOFTY_API")
 
+
 # Initialize External Managers
 hubspot_manager = HubSpotManager()
 # Initialize Managers
@@ -31,6 +33,9 @@ drive_manager = DriveManager()
 VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "secure_token_123") 
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 IG_USER_ID = os.getenv("INSTAGRAM_BUSINESS_ID")
+if not os.path.exists("quotes"):
+    os.makedirs("quotes")
+app.mount("/quotes", StaticFiles(directory="quotes"), name="quotes")
 
 # --- 1. GLOBAL STATE (For AI Brain Persistence) ---
 app_state = {}
@@ -457,4 +462,5 @@ async def health_check():
     return {"status": "active", "system": "F&L Unified Backend", "version": "3.0", "concurrency": "enabled"}
 
 if __name__ == "__main__":
+
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)

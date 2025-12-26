@@ -33,9 +33,7 @@ drive_manager = DriveManager()
 VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN", "secure_token_123") 
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 IG_USER_ID = os.getenv("INSTAGRAM_BUSINESS_ID")
-if not os.path.exists("quotes"):
-    os.makedirs("quotes")
-app.mount("/quotes", StaticFiles(directory="quotes"), name="quotes")
+
 
 # --- 1. GLOBAL STATE (For AI Brain Persistence) ---
 app_state = {}
@@ -55,6 +53,10 @@ async def lifespan(app: FastAPI):
 
 # --- 3. FASTAPI APP SETUP ---
 app = FastAPI(title="F&L Design Builders - Unified Backend", version="3.0", lifespan=lifespan)
+
+if not os.path.exists("quotes"):
+    os.makedirs("quotes")
+app.mount("/quotes", StaticFiles(directory="quotes"), name="quotes")
 
 # CORS (Allow Wix & Frontend access)
 app.add_middleware(
@@ -464,3 +466,4 @@ async def health_check():
 if __name__ == "__main__":
 
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+

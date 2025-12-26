@@ -71,7 +71,7 @@ class QuoteGenerator:
         
         # --- 5. CALL TO ACTION (Clickable Links) ---
         # Currently localhost for testing, will be replaced by live domain
-        api_base = "http://localhost:8001" 
+        api_base = "https://loftai-production.up.railway.app" 
         
         # KEY UPDATE: Using deal_id instead of user name for tracking
         accept_link = f"{api_base}/quote/accept?deal_id={deal_id}"
@@ -100,4 +100,5 @@ class QuoteGenerator:
         c.save()
         
         # Returning both path and filename
+
         return filepath, filename

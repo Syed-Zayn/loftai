@@ -1,0 +1,30 @@
+# --- Core Frameworks & API ---
+fastapi
+uvicorn
+python-dotenv
+requests
+httpx
+pydantic
+python-multipart  # Required for Form data handling in API
+
+# --- AI & LangChain Ecosystem ---
+langchain-core
+langchain-community
+langchain-google-genai
+langchain-pinecone
+langgraph
+pinecone-client
+
+# --- Document Loading (for ingest_knowledge.py) ---
+pypdf
+docx2txt
+
+# --- Database & Storage ---
+psycopg-pool      # Required for AsyncPostgresSaver (Neon DB)
+
+# --- Third-Party Integrations ---
+hubspot-api-client
+twilio
+google-api-python-client
+google-auth
+schedule

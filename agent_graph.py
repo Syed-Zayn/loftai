@@ -92,7 +92,8 @@ def generate_quote_and_deal(project_type: str, budget: str, user_name: str, emai
             pdf_path = result
             pdf_filename = os.path.basename(pdf_path)
             
-        pdf_link = f"http://localhost:8000/quotes/{pdf_filename}" # Local link for testing
+        base_url = os.getenv("API_BASE_URL", "http://localhost:8000") 
+        pdf_link = f"{base_url}/quotes/{pdf_filename}"
         
     except Exception as e:
         return f"Deal Created ({deal_id}), but PDF failed: {str(e)}"
@@ -321,4 +322,5 @@ async def get_app():
     checkpointer = AsyncPostgresSaver(async_pool)
     await checkpointer.setup() 
     app = workflow.compile(checkpointer=checkpointer)
+
     return app

@@ -71,7 +71,7 @@ class QuoteGenerator:
         
         # --- 5. CALL TO ACTION (Clickable Links) ---
         # Currently localhost for testing, will be replaced by live domain
-        api_base = "https://loftai-production.up.railway.app" 
+        api_base = os.getenv("API_BASE_URL", "http://localhost:8000")
         
         # KEY UPDATE: Using deal_id instead of user name for tracking
         accept_link = f"{api_base}/quote/accept?deal_id={deal_id}"
@@ -102,3 +102,4 @@ class QuoteGenerator:
         # Returning both path and filename
 
         return filepath, filename
+

@@ -54,9 +54,9 @@ async def lifespan(app: FastAPI):
 # --- 3. FASTAPI APP SETUP ---
 app = FastAPI(title="F&L Design Builders - Unified Backend", version="3.0", lifespan=lifespan)
 
-if not os.path.exists("quotes"):
-    os.makedirs("quotes")
-app.mount("/quotes", StaticFiles(directory="quotes"), name="quotes")
+if not os.path.exists("generated_quotes"):
+    os.makedirs("generated_quotes")
+app.mount("/quotes", StaticFiles(directory="generated_quotes"), name="quotes")
 
 # CORS (Allow Wix & Frontend access)
 app.add_middleware(
@@ -406,6 +406,25 @@ async def reject_quote_submit(deal_id: str = Form(...), reason: str = Form(...))
 #  SECTION C: WEBSITE CHATBOT (Wix)
 # ============================================================
 
+
+
+
+@app.post("/capture-lead")
+async def capture_lead(data: dict):
+    """Wix frontend se lead capture karne ke liye."""
+    print(f"📥 New Lead from Website: {data}")
+    # Aap yahan HubSpot manager use karke contact create kar sakte hain
+    try:
+        hubspot_manager.create_contact(
+            email=data.get("email"),
+            firstname=data.get("name", "Website Visitor"),
+            phone=data.get("phone", "")
+        )
+        return {"status": "success", "message": "Lead captured in HubSpot"}
+    except Exception as e:
+        logger.error(f"❌ HubSpot Lead Sync Error: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     """
@@ -466,4 +485,5 @@ async def health_check():
 if __name__ == "__main__":
 
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+
 

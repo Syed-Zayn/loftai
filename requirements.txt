@@ -27,4 +27,5 @@ hubspot-api-client
 twilio
 google-api-python-client
 google-auth
+langgraph-checkpoint-postgres
 schedule

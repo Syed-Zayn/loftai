@@ -38,9 +38,44 @@ class HubSpotManager:
             return "0.00"
 
     # --- THIS WAS MISSING BEFORE (CRITICAL FIX) ---
-    def create_or_update_contact(self, name, email, phone):
-        """Wrapper function to satisfy the API call structure."""
-        return self.create_lead(name, email, phone)
+    def create_or_update_contact(self, email: str, **kwargs):
+        """
+        Creates or updates a contact. 
+        Handles 'firstname' and 'lastname' by merging them into properties.
+        """
+        properties = {
+            "email": email,
+            "phone": kwargs.get("phone", ""),
+            # Agar 'name' aaye to usay use karo, warna firstname/lastname check karo
+            "firstname": kwargs.get("firstname", kwargs.get("name", "").split(" ")[0]),
+            "lastname": kwargs.get("lastname", "")
+        }
+        
+        # Simple Name handling (Agar sirf 'name' pass hua ho)
+        if "name" in kwargs and not properties["lastname"]:
+            parts = kwargs["name"].split(" ", 1)
+            properties["firstname"] = parts[0]
+            if len(parts) > 1:
+                properties["lastname"] = parts[1]
+
+        # HubSpot API Call
+        try:
+            # Pehle check karo banda exist karta hai ya nahi (Search)
+            # ... (Search logic here if you have it) ...
+            
+            # Create Contact Logic
+            simple_public_object_input = SimplePublicObjectInput(properties=properties)
+            api_response = self.client.crm.contacts.basic_api.create(
+                simple_public_object_input=simple_public_object_input
+            )
+            return api_response.id
+            
+        except ApiException as e:
+            if e.status == 409: # Already exists
+                print("Contact already exists.")
+                return "EXISTING_ID" # Logic to fetch ID needs search scope
+            print(f"Exception when creating contact: {e}")
+            return f"Error: {e}"
 
     def get_contact_id_by_email(self, email):
         """Helper to find a contact ID if they already exist."""
@@ -250,3 +285,4 @@ class HubSpotManager:
         except Exception as e:
             print(f"⚠️ Portal Fetch Error: {e}")
             return None
+

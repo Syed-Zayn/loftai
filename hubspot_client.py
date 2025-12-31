@@ -44,6 +44,7 @@ class HubSpotManager:
         Creates or updates a contact. 
         Handles 'firstname' and 'lastname' by merging them into properties.
         """
+        # 1. Prepare Properties
         properties = {
             "email": email,
             "phone": kwargs.get("phone", ""),
@@ -52,27 +53,28 @@ class HubSpotManager:
             "lastname": kwargs.get("lastname", "")
         }
         
-        # Simple Name handling (Agar sirf 'name' pass hua ho)
+        # Fallback name splitting
         if "name" in kwargs and not properties["lastname"]:
             parts = kwargs["name"].split(" ", 1)
             properties["firstname"] = parts[0]
             if len(parts) > 1:
                 properties["lastname"] = parts[1]
 
-        # HubSpot API Call
+        # 2. HubSpot API Call
         try:
-            # FIX HERE: Used 'ContactInput' because it was renamed in imports
-            simple_public_object_input = ContactInput(properties=properties)
+            # FIX 1: Use 'ContactInput' because we renamed it in imports
+            contact_input = ContactInput(properties=properties)
             
+            # FIX 2: Use correct argument name 'simple_public_object_input_for_create'
             api_response = self.client.crm.contacts.basic_api.create(
-                simple_public_object_input=simple_public_object_input
+                simple_public_object_input_for_create=contact_input
             )
             return api_response.id
             
         except ApiException as e:
             if e.status == 409: # Already exists
                 print("Contact already exists.")
-                return "EXISTING_ID" # Logic to fetch ID needs search scope
+                return "EXISTING_ID" 
             print(f"Exception when creating contact: {e}")
             return f"Error: {e}"
 
@@ -110,7 +112,11 @@ class HubSpotManager:
                 "phone": phone,
                 "lifecyclestage": "lead"
             }
+            
+            # Use ContactInput wrapper
             contact_input = ContactInput(properties=properties)
+            
+            # Use correct argument name here as well
             response = self.client.crm.contacts.basic_api.create(
                 simple_public_object_input_for_create=contact_input
             )
@@ -144,7 +150,10 @@ class HubSpotManager:
                 "pipeline": "default",
                 "description": f"AI Generated Quote: {quote_link}\nIncludes 8-Month Financing Option."
             }
+            # Use DealInput wrapper
             deal_input = DealInput(properties=properties)
+            
+            # Create Deal with correct argument
             deal_resp = self.client.crm.deals.basic_api.create(
                 simple_public_object_input_for_create=deal_input
             )
@@ -152,7 +161,6 @@ class HubSpotManager:
             # 2. Associate Deal with Contact
             if contact_id and str(contact_id).isdigit():
                 try:
-                    # Association Type ID 3 = Deal to Contact (Standard HubSpot)
                     self.client.crm.associations.v4.basic_api.create(
                         object_type="deals",
                         object_id=deal_resp.id,
@@ -165,7 +173,7 @@ class HubSpotManager:
                     )
                     print(f"✅ Deal {deal_resp.id} linked to Contact {contact_id}")
                 except Exception as assoc_error:
-                    print(f"⚠️ Association Warning (Deal created but not linked): {assoc_error}")
+                    print(f"⚠️ Association Warning: {assoc_error}")
             
             return deal_resp.id
 
@@ -185,7 +193,9 @@ class HubSpotManager:
             properties = {
                 "dealstage": stage_id
             }
+            # Use DealInput wrapper
             simple_public_object_input = DealInput(properties=properties)
+            
             self.client.crm.deals.basic_api.update(
                 deal_id=deal_id,
                 simple_public_object_input=simple_public_object_input

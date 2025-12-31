@@ -37,6 +37,30 @@ class HubSpotManager:
         except:
             return "0.00"
 
+    # --- THIS WAS MISSING BEFORE (CRITICAL FIX) ---
+    def create_or_update_contact(self, name, email, phone):
+        """Wrapper function to satisfy the API call structure."""
+        return self.create_lead(name, email, phone)
+
+    def get_contact_id_by_email(self, email):
+        """Helper to find a contact ID if they already exist."""
+        if not self.client: return None
+        try:
+            public_object_search_request = {
+                "filterGroups": [{"filters": [{"propertyName": "email", "operator": "EQ", "value": email}]}],
+                "properties": ["id"],
+                "limit": 1
+            }
+            result = self.client.crm.contacts.search_api.do_search(
+                public_object_search_request=public_object_search_request
+            )
+            if result.results:
+                return result.results[0].id
+            return None
+        except Exception as e:
+            print(f"❌ Search Error: {e}")
+            return None
+
     def create_lead(self, name: str, email: str, phone: str):
         if not self.client: return "simulated_contact_id_123"
 
@@ -56,14 +80,17 @@ class HubSpotManager:
             response = self.client.crm.contacts.basic_api.create(
                 simple_public_object_input_for_create=contact_input
             )
+            print(f"✅ HubSpot Contact Created: {response.id}")
             return response.id
 
         except Exception as e:
+            # Improved Error Handling for Duplicates
             error_msg = str(e)
-            if "409" in error_msg or "Existing ID" in error_msg:
-                print("ℹ️ Contact already exists. Fetching existing ID...")
-                match = re.search(r"Existing ID: (\d+)", error_msg)
-                if match: return match.group(1)
+            if "409" in error_msg or "already exists" in error_msg:
+                print(f"ℹ️ Contact {email} already exists. Fetching ID...")
+                existing_id = self.get_contact_id_by_email(email)
+                if existing_id:
+                    return existing_id
             
             print(f"⚠️ HubSpot Contact Error: {e}")
             return f"existing_user_{email}"
@@ -80,6 +107,7 @@ class HubSpotManager:
                 "dealname": f"{project_type} Renovation",
                 "amount": final_amount,
                 "dealstage": "appointmentscheduled", 
+                "pipeline": "default",
                 "description": f"AI Generated Quote: {quote_link}\nIncludes 8-Month Financing Option."
             }
             deal_input = DealInput(properties=properties)
@@ -88,9 +116,8 @@ class HubSpotManager:
             )
             
             # 2. Associate Deal with Contact
-            if contact_id and contact_id.isdigit():
+            if contact_id and str(contact_id).isdigit():
                 try:
-                    # New Method: Use Associations API V4
                     # Association Type ID 3 = Deal to Contact (Standard HubSpot)
                     self.client.crm.associations.v4.basic_api.create(
                         object_type="deals",
@@ -112,7 +139,7 @@ class HubSpotManager:
             print(f"⚠️ HubSpot Deal Error: {e}")
             return f"Error creating deal: {str(e)}"
 
-    # --- NEW FUNCTIONS FOR QUOTE FEEDBACK LOOP ---
+    # --- QUOTE FEEDBACK LOOP FUNCTIONS ---
 
     def update_deal_stage(self, deal_id, stage_id):
         """
@@ -138,7 +165,6 @@ class HubSpotManager:
     def add_note_to_deal(self, deal_id, note_content):
         """
         Adds a note to the deal (used for Reject Reasons).
-        Using direct API requests for better association handling.
         """
         if not self.client: return False
         
@@ -173,13 +199,14 @@ class HubSpotManager:
         except Exception as e:
             print(f"❌ Error adding note: {e}")
             return False
-    # --- NEW FUNCTION FOR CLIENT PORTAL (PROBLEM 2) ---
+
+    # --- CLIENT PORTAL FUNCTION ---
     def get_deal_by_email(self, email):
         """
         Wix Portal ke liye: Email se Contact dhoondta hai aur associated Deal/Project ka data lata hai.
         """
         if not self.client: 
-            # Simulation Mode (Agar token na ho to ye fake data dega testing k liye)
+            # Simulation Mode
             return {"project": "Luxury Kitchen (Demo)", "status": "In Progress", "link": "#"}
         
         try:
@@ -195,7 +222,6 @@ class HubSpotManager:
             contact_id = contact_result.results[0].id
             
             # 2. Get Associated Deals
-            # Hum latest deal uthayenge jo is contact ke sath jurri hui hai
             associations = self.client.crm.associations.v4.basic_api.get_page(
                 object_type="contacts", object_id=contact_id, to_object_type="deals"
             )
@@ -211,13 +237,12 @@ class HubSpotManager:
                 properties=["dealname", "dealstage", "description", "amount"]
             )
             
-            # Extract Drive Link (Hum assume kr rhy hain link description mein hoga ya hum default drive link denge)
+            # Extract Drive Link
             drive_link = "https://drive.google.com/" 
-            # Agar description mein koi link hua to wo extract kr skty hain future mein
             
             return {
                 "project": deal.properties['dealname'],
-                "status": deal.properties['dealstage'], # Ye internal ID hogi (e.g., appointmentscheduled)
+                "status": deal.properties['dealstage'],
                 "amount": deal.properties['amount'],
                 "link": drive_link
             }

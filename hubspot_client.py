@@ -39,7 +39,6 @@ class HubSpotManager:
         except:
             return "0.00"
 
-    # --- THIS WAS MISSING BEFORE (CRITICAL FIX) ---
     def create_or_update_contact(self, email: str, **kwargs):
         """
         Creates or updates a contact. 
@@ -62,11 +61,9 @@ class HubSpotManager:
 
         # HubSpot API Call
         try:
-            # Pehle check karo banda exist karta hai ya nahi (Search)
-            # ... (Search logic here if you have it) ...
+            # FIX HERE: Used 'ContactInput' because it was renamed in imports
+            simple_public_object_input = ContactInput(properties=properties)
             
-            # Create Contact Logic
-            simple_public_object_input = SimplePublicObjectInput(properties=properties)
             api_response = self.client.crm.contacts.basic_api.create(
                 simple_public_object_input=simple_public_object_input
             )
@@ -287,5 +284,3 @@ class HubSpotManager:
         except Exception as e:
             print(f"⚠️ Portal Fetch Error: {e}")
             return None
-
-

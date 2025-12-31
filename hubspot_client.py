@@ -5,6 +5,8 @@ import requests
 from hubspot import HubSpot
 from hubspot.crm.contacts import SimplePublicObjectInput as ContactInput
 from hubspot.crm.deals import SimplePublicObjectInput as DealInput
+from hubspot.crm.contacts.exceptions import ApiException
+from hubspot.crm.deals.exceptions import ApiException as DealApiException
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -285,4 +287,5 @@ class HubSpotManager:
         except Exception as e:
             print(f"⚠️ Portal Fetch Error: {e}")
             return None
+
 

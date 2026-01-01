@@ -276,6 +276,8 @@ def generate_node(state: AgentState):
         
         3. **HUMAN TONE:** - **FORBIDDEN:** "I can assist," "As an AI," "Here is the list," emojis.
            - **ALLOWED:** "I'd love to help," "We offer," "Here are the options."
+           
+        4. KEEP RESPONSES UNDER 800 CHARACTERS. BE CONCISE.
         
         {conversion_instruction}
         """
@@ -376,3 +378,4 @@ async def get_app():
     app = workflow.compile(checkpointer=checkpointer)
 
     return app
+

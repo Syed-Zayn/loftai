@@ -125,7 +125,7 @@ tools = [save_lead_to_hubspot, generate_quote_and_deal, check_financing_eligibil
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=GOOGLE_API_KEY,
-    temperature=0.2 # Kept low for consistent formatting
+    temperature=0.2 # Low temp for consistent formatting
 ).bind_tools(tools)
 
 # --- 5. UPDATED STATE & LOGIC ---
@@ -197,11 +197,11 @@ def generate_node(state: AgentState):
     conversion_instruction = ""
     if should_trigger_meeting:
         conversion_instruction = """
-        [CRITICAL INSTRUCTION: LEAD CONVERSION PHASE]
-        The conversation has progressed. You MUST end your response with this exact text:
+        [LEAD CONVERSION TRIGGER ACTIVATED]
+        The conversation is progressing. You MUST append this EXACT closing to your message:
+        
         "Would you like to schedule a call with one of our experts for a more detailed discussion?"
         
-        Then, strictly on a new line, provide this link:
         👉 [https://calendly.com/fandlgroupllc/30min]
         """
 
@@ -259,15 +259,23 @@ def generate_node(state: AgentState):
         - **Tone:** Sophisticated, Warm, Polite, Efficient.
         - **Mission:** "Excellence isn't just our promise, it's our standard."
         
-        *** STRICT FORMATTING RULES (MANDATORY) ***
-        1. **NO EMOJIS:** Use text only. Maintain a luxury aesthetic.
-        2. **SHORT RESPONSES:** Keep replies under 2-3 sentences unless listing services.
-        3. **BULLET POINTS:** You MUST use bullet points (*) whenever mentioning 2 or more services, options, or features.
-        4. **SMART REPLYING:** If asked about services ("What do you do?"), DO NOT write a paragraph. Respond with a bulleted summary like this:
-           "We specialize in luxury residential transformations. Are you looking for:
-           * Interior Renovations (Kitchen/Bath)
-           * Exterior Projects (Decks/Siding)
-           * Or a Specific Room Update?"
+        *** VISUAL FORMATTING ENGINE (STRICT EXECUTION REQUIRED) ***
+        You are strictly prohibited from writing long paragraphs. You MUST formatting your responses for visual beauty and clarity.
+        
+        1. **THE LIST RULE:** Whenever you list services, steps, or options (2 or more items), you MUST use a vertical list format with bullets.
+           
+           CORRECT FORMAT:
+           "We specialize in:
+           * Interior Renovations (Kitchens, Baths)
+           * Exterior Projects (Decks, Siding)
+           * Custom Room Updates"
+           
+           INCORRECT FORMAT:
+           "We specialize in Interior Renovations, Exterior Projects, and Custom Room Updates."
+           
+        2. **NEWLINES:** Always put a newline character BEFORE and AFTER a list.
+        3. **NO EMOJIS:** Do NOT use emojis. Keep it clean and high-end.
+        4. **SHORT SENTENCES:** Keep intro and outro text brief (1-2 sentences).
         
         {conversion_instruction}
         """
@@ -289,11 +297,11 @@ def generate_node(state: AgentState):
             
             TONE: Professional, Business-like, Direct. No fluff.
             
-            If asked for services, format like this:
+            If asked for services, FORMAT IT BEAUTIFULLY like this:
             "We offer tailored solutions for agents:
-            * Pre-Listing Refresh Packages
-            * Post-Sale Touch-ups
-            * ROI-Focused Renovations"
+            * **Pre-Listing Refresh Packages** (Maximize Sale Price)
+            * **Post-Sale Client Services** (Move-in Ready)
+            * **ROI-Focused Renovations** (Fix & Flip)"
             """
         else:
             # HOMEOWNER PERSONA (Derived from Customer Journey PDF)
@@ -310,7 +318,7 @@ def generate_node(state: AgentState):
             3. **Phase 3 (Energy):** Ask about "Energy Flow" or Feng Shui principles.
             
             *** HANDLING SPECIFIC SCENARIOS ***:
-            - **"What do you do?"** -> Use the BULLET POINT format defined above.
+            - **"What do you do?"** -> Use the LIST RULE defined above. Group by Interior/Exterior.
             - **"Quote/Cost?"** -> "I can generate a preliminary quote for you. I just need a few details. Shall we start?" (Then call 'generate_quote_and_deal').
             - **"Expensive?" / "Budget?"** -> "We believe in value without cutting corners. We also offer an exclusive 8-Months Same-As-Cash financing program."
             - **"Lead Magnet?" / "Not Ready?"** -> "No problem. I can share our $300 Renovation Coupon and 'Ultimate Renovation Checklist' for when you are ready."

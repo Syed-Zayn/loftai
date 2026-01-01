@@ -2,6 +2,7 @@ import os
 import uvicorn
 import httpx
 import logging
+import textwrap  # <--- NEW IMPORT FOR CHUNKING
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Form, Query, BackgroundTasks
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -85,49 +86,56 @@ class PortalLoginRequest(BaseModel):
 
 # ============================================================
 #  SECTION A: INSTAGRAM AUTOMATION (Async & Background)
-#  CRITICAL FIX APPLIED: Using graph.instagram.com
+#  CRITICAL FIX APPLIED: Using graph.instagram.com + Message Chunking
 # ============================================================
 
 # 1. HELPER: Send Message via Meta API (Async)
 async def send_meta_reply_http(recipient_id: str, text: str, type: str):
-    """Sends the final text back to Instagram User via Graph API."""
+    """
+    Sends the final text back to Instagram User via Graph API.
+    UPDATED: Now splits long messages into chunks to avoid 1000 char limit error.
+    """
     if not PAGE_ACCESS_TOKEN:
         logger.error("⚠️ Page Access Token Missing! Cannot reply.")
         return
+
+    # --- MESSAGE SPLITTER LOGIC ---
+    # Break message into 950 char chunks (Leaving 50 chars buffer)
+    chunks = textwrap.wrap(text, width=950, replace_whitespace=False, drop_whitespace=False)
 
     async with httpx.AsyncClient() as client:
         # UPDATED: Using graph.instagram.com based on official docs for User Tokens
         base_url = "https://graph.instagram.com/v21.0"
         
-        url = ""
-        payload = {}
-        
-        try:
-            if type == "dm":
-                # Doc: POST /<IG_ID>/messages
-                url = f"{base_url}/{IG_USER_ID}/messages?access_token={PAGE_ACCESS_TOKEN}"
-                payload = {
-                    "recipient": {"id": recipient_id},
-                    "message": {"text": text}
-                }
+        for i, chunk in enumerate(chunks):
+            url = ""
+            payload = {}
             
-            elif type == "comment":
-                # Comments usually work via: /<COMMENT_ID>/replies
-                url = f"{base_url}/{recipient_id}/replies?access_token={PAGE_ACCESS_TOKEN}"
-                payload = {"message": text}
+            try:
+                if type == "dm":
+                    # Doc: POST /<IG_ID>/messages
+                    url = f"{base_url}/{IG_USER_ID}/messages?access_token={PAGE_ACCESS_TOKEN}"
+                    payload = {
+                        "recipient": {"id": recipient_id},
+                        "message": {"text": chunk}
+                    }
                 
-            print(f"📤 Sending Reply to Meta: {url}") 
-            
-            response = await client.post(url, json=payload, timeout=10.0)
-            result = response.json()
-            
-            if response.status_code == 200:
-                logger.info(f"✅ Meta Reply Sent to {recipient_id}")
-            else:
-                logger.error(f"❌ Meta API Error: {response.text}")
+                elif type == "comment":
+                    # Comments usually work via: /<COMMENT_ID>/replies
+                    url = f"{base_url}/{recipient_id}/replies?access_token={PAGE_ACCESS_TOKEN}"
+                    payload = {"message": chunk}
+                    
+                print(f"📤 Sending Reply Chunk {i+1}/{len(chunks)} to Meta ({len(chunk)} chars)...") 
+                
+                response = await client.post(url, json=payload, timeout=10.0)
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Meta Reply Chunk {i+1} Sent to {recipient_id}")
+                else:
+                    logger.error(f"❌ Meta API Error on Chunk {i+1}: {response.text}")
 
-        except Exception as e:
-            logger.error(f"⚠️ Network Error sending to Meta: {e}")
+            except Exception as e:
+                logger.error(f"⚠️ Network Error sending to Meta: {e}")
 
 # 2. HELPER: Process Logic (The Brain) - Runs in Background
 async def process_instagram_event(target_id: str, user_text: str, type: str):
@@ -168,7 +176,7 @@ async def process_instagram_event(target_id: str, user_text: str, type: str):
             if response_text:
                 ai_reply = response_text
 
-        # Send Reply via Meta API
+        # Send Reply via Meta API (Now handles chunks)
         await send_meta_reply_http(target_id, ai_reply, type)
 
     except Exception as e:
@@ -481,6 +489,3 @@ async def health_check():
 if __name__ == "__main__":
 
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
-
-
-

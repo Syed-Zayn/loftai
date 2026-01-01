@@ -28,7 +28,8 @@ pdf_engine = QuoteGenerator()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-# 2. Setup Pinecone
+# 2. Setup Pinecone (Connecting to the Knowledge Base created by ingest_knowledge.py)
+print("🧠 Initializing AI Memory (Pinecone + Gemini)...")
 embeddings = GoogleGenerativeAIEmbeddings(
     model="gemini-embedding-001",
     google_api_key=GOOGLE_API_KEY,
@@ -41,13 +42,15 @@ vectorstore = PineconeVectorStore(
     pinecone_api_key=PINECONE_API_KEY
 )
 
-# 3. Define Tools
+# 3. Define Tools (The "Hands" of the Agent)
 from langchain_core.tools import tool
 
 @tool
 def save_lead_to_hubspot(name: str, email: str, phone: str):
-    """Save a new lead to HubSpot CRM AND Wix Newsletter."""
-    
+    """
+    Saves a new lead to HubSpot CRM AND Wix Newsletter.
+    Use this immediately when the user provides their contact details.
+    """
     status_msg = []
     
     # 1. Save to HubSpot (CRM)
@@ -64,25 +67,26 @@ def save_lead_to_hubspot(name: str, email: str, phone: str):
     else:
         status_msg.append("Wix Sync Skipped")
 
-    return f"Lead processed: {', '.join(status_msg)}. Checklist sent."
+    return f"Lead processed successfully: {', '.join(status_msg)}. Checklist sent to client."
 
 @tool
 def generate_quote_and_deal(project_type: str, budget: str, user_name: str, email: str, phone: str):
-    """Generates PDF quote and creates HubSpot Deal. REQUIRED: Name, Email, Phone, Type, Budget."""
-    
+    """
+    Generates a formal PDF quote and creates a HubSpot Deal.
+    REQUIRED ARGUMENTS: Name, Email, Phone, Type (e.g., Kitchen), Budget.
+    """
     # 1. Create Lead First
     contact_id = hubspot.create_lead(user_name, email, phone)
     wix.add_contact_to_wix(user_name, email, phone)
     
-    # 2. Create Deal FIRST
+    # 2. Create Deal FIRST to get the ID
     deal_id = hubspot.create_deal_with_quote(contact_id, project_type, budget, "Generating...")
     
     if "Error" in str(deal_id):
-        return f"Failed to create deal: {deal_id}"
+        return f"Failed to create deal in HubSpot: {deal_id}"
 
-    # 3. Generate PDF NOW
+    # 3. Generate PDF NOW (Using the Real Deal ID)
     try:
-        # Note: pdf_engine.generate_pdf ab 4th argument (deal_id) lega
         result = pdf_engine.generate_pdf(user_name, project_type, budget, deal_id)
         
         if isinstance(result, tuple):
@@ -95,21 +99,24 @@ def generate_quote_and_deal(project_type: str, budget: str, user_name: str, emai
         pdf_link = f"{base_url}/quotes/{pdf_filename}"
         
     except Exception as e:
-        return f"Deal Created ({deal_id}), but PDF failed: {str(e)}"
+        return f"Deal Created ({deal_id}), but PDF generation failed: {str(e)}"
     
     return f"Success! Deal {deal_id} Created. Quote Link: {pdf_link}"
 
 @tool
 def check_financing_eligibility(budget_concern: str):
-    """Returns financing terms (8-Months Same-As-Cash)."""
-    return "Eligible for: 8-Months Same-As-Cash Financing Program."
-
+    """
+    Returns financing terms.
+    Use ONLY when user mentions 'budget', 'cost', 'expensive', or 'payment plan'.
+    """
+    return "Eligible for: F&L Exclusive 8-Months Same-As-Cash Financing Program. (Approvals in minutes)."
 
 @tool
 def get_secure_upload_link():
-    """Returns a secure link for the user to upload photos, videos, or measurements."""
-    # Tip: Client ko bolna ek Google Form banaye jisme 'File Upload' option ho aur uska link yahan dalein.
-    # Filhal hum placeholder use kar rahe hain.
+    """
+    Returns a secure link for the user to upload photos, videos, or measurements of their space.
+    Use this when asking for site details.
+    """
     return "Please upload your site photos and measurements securely here: https://forms.google.com/your-upload-form-link"
 
 tools = [save_lead_to_hubspot, generate_quote_and_deal, check_financing_eligibility, get_secure_upload_link]
@@ -118,7 +125,7 @@ tools = [save_lead_to_hubspot, generate_quote_and_deal, check_financing_eligibil
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=GOOGLE_API_KEY,
-    temperature=0.3
+    temperature=0.3 # Keep low to prevent hallucination, ensuring it sticks to the Knowledge Base
 ).bind_tools(tools)
 
 # --- 5. UPDATED STATE & LOGIC ---
@@ -128,20 +135,25 @@ class AgentState(TypedDict):
     user_role: str # 'homeowner', 'realtor', or 'unknown'
     context: str
 
-# NEW NODE: Classifier
+# NEW NODE: Classifier (Advanced Detection Logic based on Client Chat)
 def classify_user_node(state: AgentState):
-    # Agar role pehle se set hai to dobara check mat karo
+    # If role is already set, don't re-classify
     if state.get("user_role") and state["user_role"] != "unknown":
         return {"user_role": state["user_role"]}
         
     last_msg = state["messages"][-1].content.lower()
     
-    # Simple Keyword Logic (Fast & Reliable)
-    if any(x in last_msg for x in ["selling", "listing", "client", "market", "roi", "investor", "flip", "broker", "agent"]):
+    # Advanced Keyword Logic (Derived from Client's Realtor vs Homeowner requirements)
+    realtor_keywords = [
+        "selling", "listing", "client", "market", "roi", "investor", "flip", 
+        "broker", "agent", "commission", "pre-listing", "market value", "closing"
+    ]
+    
+    if any(x in last_msg for x in realtor_keywords):
         detected_role = "realtor"
         print("🕵️ Detected User Role: REALTOR/INVESTOR")
     else:
-        # Default assumption is homeowner unless specific keywords appear
+        # Default is homeowner (Renovation, Kitchen, Bath, Design, etc.)
         detected_role = "homeowner"
         print("🏠 Detected User Role: HOMEOWNER")
         
@@ -152,14 +164,15 @@ def retrieve_node(state: AgentState):
     query = last_msg.content
     role = state.get("user_role", "homeowner")
     
-    # Contextual Retrieval
+    # Advanced Contextual Retrieval Strategy
+    # We enrich the search query based on the detected role to fetch the RIGHT docs from Pinecone
     if role == "realtor":
-        search_query = f"{query} services for realtors investors ROI"
+        search_query = f"{query} services for realtors investors ROI renovation packages commission partnership"
     else:
-        search_query = f"{query} luxury home design renovation"
+        search_query = f"{query} luxury home design renovation feng shui services process paint of hope venicasa"
         
     print(f"🔍 Searching Knowledge Base for ({role}): {search_query}")
-    docs = vectorstore.similarity_search(search_query, k=3)
+    docs = vectorstore.similarity_search(search_query, k=4) # Fetch top 4 relevant chunks
     context_text = "\n".join([d.page_content for d in docs])
     return {"context": context_text}
 
@@ -177,96 +190,134 @@ def generate_node(state: AgentState):
     
     last_msg_content = messages[-1].content if messages else ""
     
-    # --- 2. SECRET INTERNAL MODE (Admin Logic) ---
+    # --- 2. DYNAMIC CONVERSION TRIGGER LOGIC (Python Logic, not just Prompt) ---
+    # We count human messages. If > 2, we FORCE the bot to ask for a meeting.
+    human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
+    should_trigger_meeting = human_msg_count >= 2
+    
+    conversion_instruction = ""
+    if should_trigger_meeting:
+        conversion_instruction = """
+        [CRITICAL INSTRUCTION: LEAD CONVERSION PHASE]
+        The conversation has progressed. You MUST end your response with this exact text:
+        "Would you like to schedule a call with one of our experts for a more detailed discussion?"
+        
+        Then, strictly on a new line, provide this link:
+        👉 [https://calendly.com/fandlgroupllc/30min]
+        """
+
+    # --- 3. SECRET INTERNAL MODE (Admin Logic - High Level) ---
+    # Trigger: "FL_ADMIN_ACCESS" or "SECRET_KEY_786"
     if "FL_ADMIN_ACCESS" in last_msg_content or "SECRET_KEY_786" in last_msg_content:
         print("🔓 ADMIN MODE ACTIVATED")
         system_prompt = f"""
         You are the INTERNAL Business Intelligence Unit for F&L Design Builders.
-        Your goal is to assist the business owner with operations and strategy.
-        INTERNAL CONTEXT FROM DATABASE: {context}
-        TONE: Direct, Analytical, Professional. Use bullet points.
+        Your goal is to assist the owner (Felicity/Lorena) with operations, strategy, and lead analysis.
+        
+        INTERNAL KNOWLEDGE BASE: {context}
+        
+        YOUR CAPABILITIES:
+        1. **Lead Analysis:** Summarize recent interactions based on the context provided.
+        2. **Operational Support:** Draft internal emails to the Project Manager or Crew.
+        3. **Strategy:** Advise on utilizing the 'Venicasa' partnership or 'Paint of Hope' for marketing.
+        
+        TONE: Direct, Analytical, Professional. Bullet points only. No fluff.
         
         CRITICAL ACTION TRIGGER:
         - If the owner asks to generate a quote manually: 
           1. Ask for Client Name, Email, Phone, and Budget.
           2. THEN call the 'generate_quote_and_deal' tool immediately.
         """
+        # Hide the secret key from the chat history passed to LLM
         if isinstance(clean_messages[-1], HumanMessage):
              clean_text = last_msg_content.replace("FL_ADMIN_ACCESS", "").replace("SECRET_KEY_786", "")
              clean_messages[-1] = HumanMessage(content=clean_text)
 
     else:
-        # --- 3. CUSTOMER MODES (UPDATED TO CLIENT SPECS) ---
+        # --- 4. ADVANCED CUSTOMER PERSONA PROMPTS (100% Client Aligned) ---
+        
         base_prompt = f"""You are 'LOFTY', the Exclusive Design Concierge for F&L Design Builders.
-        CONTEXT FROM DATABASE: {context}
+        
+        CORE KNOWLEDGE BASE (Use this for answers):
+        {context}
+        
+        *** YOUR IDENTITY & BRAND VOICE ***
+        - **Role:** You are a high-end Design Concierge, NOT a robot.
+        - **Company:** F&L Design Builders (Woman-owned, Minority-owned).
+        - **Tone:** Sophisticated, Warm, Polite, and Efficient. 
+        - **Mission:** "Excellence isn't just our promise, it's our standard."
+        - **Objective:** To guide the user from inquiry to a booked appointment using the "F&L Experience".
         """
         
-        # --- UNIVERSAL STYLE RULES (Applied to both Personas) ---
+        # --- UNIVERSAL STYLE RULES (Strict Enforcement) ---
         style_rules = """
-        *** STRICT STYLE & FORMATTING RULES (DO NOT IGNORE) ***
-        1. **SHORT RESPONSES:** Your replies must be SHORT and concise. Avoid long paragraphs.
-        2. **NO EMOJIS:** Do NOT use emojis or emoticons under any circumstances. (Strict Instruction).
-        3. **FORMATTING:** Use bullet points (*) for lists to provide better clarity.
-        4. **TONE:** Personalized, Professional, and Human-like. Avoid robotic/ChatGPT tones.
-        5. **IDENTITY:** Never mention you are an AI. You are a Design Concierge.
-
-        *** LEAD CONVERSION TRIGGER (MANDATORY) ***
-        - Check the conversation history.
-        - After 2–3 user questions or interactions, you MUST include this exact lead-converting message at the end:
-        
-        "Would you like to schedule a call with one of our experts for a more detailed discussion?"
-        
-        AND THEN PROVIDE THIS LINK ON A NEW LINE:
-        👉 [https://calendly.com/fandlgroupllc/30min]
+        *** STRICT STYLE GUIDELINES (MANDATORY) ***
+        1. **SHORT RESPONSES:** Keep replies under 2-3 sentences unless listing services. No walls of text.
+        2. **NO EMOJIS:** Do NOT use emojis. Maintain a luxury aesthetic.
+        3. **FORMATTING:** Use bullet points (*) ONLY when listing 3+ items.
+        4. **SMART REPLYING:** - If the user asks about services, DO NOT dump the whole list. Group them or ask for their specific need first.
+           - If the user has a budget concern, immediately mention "8-Months Same-As-Cash Financing".
         """
 
         if role == "realtor":
-            # Realtor Persona
+            # REALTOR PERSONA (Derived from Client Chat & PDF)
+            # Focus: ROI, Speed, Commission, Pre-listing
             persona_prompt = f"""
+            {base_prompt}
             {style_rules}
-            USER DETECTED: REALTOR / INVESTOR / PARTNER.
-            FOCUS: ROI, Market Value, Turnkey Solutions.
             
-            INSTRUCTIONS:
-            1. Focus on 'Pre-Listing Packages', 'Market Value', and 'Turnkey Solutions'.
-            2. Do NOT offer the $300 homeowner coupon.
-            3. Mention the '1% Referral Commission' program.
+            USER TYPE: REALTOR / INVESTOR / PARTNER.
+            STRATEGY: Focus on ROI, Speed, Market Value, and "Curb Appeal".
             
-            Example Approach:
-            "Here are some of the services we offer for agents:
-            * Pre-Listing Renovations
-            * Market Value Consultation
-            * Quick Turnaround Projects"
+            OFFERS TO HIGHLIGHT (From Knowledge Base):
+            1. **1% Referral Commission:** For successful referrals (Influencer Code: 14F&L101).
+            2. **Pre-Listing Packages:** Quick refresh to maximize sale price.
+            3. **Pay at Closing:** Renovate now, pay later options.
+            4. **Partnership Portal:** "Join our Strategic Partner Program".
+            
+            TONE: Professional, Business-like, Direct.
+            
+            If asked for services, format like this:
+            "We offer tailored solutions for agents:
+            * Pre-Listing Refresh Packages
+            * Post-Sale Touch-ups
+            * ROI-Focused Renovations"
+            
+            {conversion_instruction}
             """
         else:
-            # Homeowner Persona (The Main One)
+            # HOMEOWNER PERSONA (Derived from Client Chat & "Customer Journey" PDF)
+            # Focus: Emotional, Lifestyle, Vibe, Feng Shui
             persona_prompt = f"""
+            {base_prompt}
             {style_rules}
-            USER DETECTED: HOMEOWNER.
-            ROLE: High-end Design Concierge.
             
-            DISCOVERY FLOW (Step-by-Step - Ask ONE thing at a time):
-            1. First, welcome them warmly and briefly ask about the 'Atmosphere' or 'Vibe'.
-            2. Once they answer, ask about 'Lifestyle/Logistics'.
-            3. Finally, ask about 'Energy Flow' (Feng Shui).
+            USER TYPE: HOMEOWNER.
+            STRATEGY: Emotional Connection, "Personality & Lifestyle Intelligence™", Feng Shui.
             
-            DO NOT output the whole list at once. Keep it conversational.
-
-            *** SPECIFIC LINKS & OFFERS (MANDATORY) ***
+            *** DISCOVERY FLOW (Ask ONE by ONE - Do not overwhelm) ***:
+            1. **Phase 1 (Vibe):** Welcome them warmly. Ask about the "Atmosphere" or feeling they want (e.g., Calm, Energetic).
+            2. **Phase 2 (Lifestyle):** Ask how they use the space (Entertaining, Kids, Work from home?).
+            3. **Phase 3 (Energy):** Ask about "Energy Flow" or Feng Shui principles.
             
-            1. **Scheduling Link:**
-               When you ask the "Lead Conversion Trigger" question (about scheduling a call), strictly provide this link on a new line:
-               👉 [https://calendly.com/fandlgroupllc/30min]
-
-            2. **Additional Tools & Offers:**
-               - If they ask for a quote -> Call tool 'generate_quote_and_deal'.
-               - If budget is tight -> Suggest "8-Months Same-As-Cash Financing".
-               - If they have photos -> Provide the secure upload link tool.
+            *** HANDLING SPECIFIC SCENARIOS (From Client Requirements) ***:
+            - **"What do you do?"** -> "We specialize in luxury residential transformations. Are you looking for Interior (Kitchen/Bath), Exterior, or a specific room renovation?"
+            - **"Quote/Cost?"** -> "I can generate a preliminary quote for you. I just need a few details. Shall we start?" (Then call 'generate_quote_and_deal').
+            - **"Expensive?" / "Budget?"** -> "We believe in value without cutting corners. We also offer an exclusive 8-Months Same-As-Cash financing program."
+            - **"Lead Magnet?" / "Not Ready?"** -> "No problem. I can share our $300 Renovation Coupon and 'Ultimate Renovation Checklist' for when you are ready."
+            - **"Furniture?"** -> Mention the **Venicasa Partnership** (European Luxury Furniture) and cross-sell interior styling.
+            - **"Community?"** -> Mention the **"Paint of Hope"** initiative (Charity donation with every project).
+            
+            {conversion_instruction}
+            
+            Additional Tools available to you:
+            - Use 'check_financing_eligibility' if budget is mentioned.
+            - Use 'get_secure_upload_link' if they want to share photos.
             """
 
-        system_prompt = base_prompt + persona_prompt
+        system_prompt = persona_prompt
     
-    # --- 4. Final Execution ---
+    # --- 5. Final Execution ---
     final_input = [SystemMessage(content=system_prompt)] + clean_messages
     
     response = model.invoke(final_input)
@@ -284,23 +335,23 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
 workflow = StateGraph(AgentState)
 
 # Add Nodes
-workflow.add_node("classify", classify_user_node) # New Node
-workflow.add_node("retrieve", retrieve_node)
-workflow.add_node("agent", generate_node)
-workflow.add_node("tools", tool_node)
+workflow.add_node("classify", classify_user_node) # Step 1: Detect Role
+workflow.add_node("retrieve", retrieve_node)      # Step 2: Get Info from Pinecone
+workflow.add_node("agent", generate_node)         # Step 3: Generate Smart Answer
+workflow.add_node("tools", tool_node)             # Step 4: Execute Tools
 
 # Define Flow
-workflow.add_edge(START, "classify") # Start with classification
+workflow.add_edge(START, "classify")
 workflow.add_edge("classify", "retrieve")
 workflow.add_edge("retrieve", "agent")
 workflow.add_conditional_edges("agent", should_continue)
 workflow.add_edge("tools", "agent")
 
-# 7. Compile
+# 7. Compile with Robust Database Connection
 async def get_app():
     db_url = os.getenv("NEON_DB_URL")
     
-    # 1. Connection Arguments (Keepalives)
+    # Connection Arguments (Optimized for Production)
     connection_kwargs = {
         "autocommit": True, 
         "prepare_threshold": 0,
@@ -310,18 +361,17 @@ async def get_app():
         "keepalives_count": 5
     }
     
-    # 2. Pool Configuration (Ismein Changes Hain)
+    # Async Pool (Resilient to disconnects)
     async_pool = AsyncConnectionPool(
         conninfo=db_url, 
         max_size=20, 
         kwargs=connection_kwargs, 
         open=False,
-        
         # --- NEW STABILITY SETTINGS ---
-        min_size=1,          # Kam se kam 1 connection zinda rakho
-        max_lifetime=120,    # Har 2 minute baad connection naya banao (Neon Kill se bachne k liye)
-        check=AsyncConnectionPool.check_connection, # Har baar check karo ke taar judi hai ya nahi?
-        timeout=10           # Agar connection na mile to 10s wait karo
+        min_size=1,          # Keep 1 connection alive
+        max_lifetime=120,    # Refresh connection every 2 mins
+        check=AsyncConnectionPool.check_connection, 
+        timeout=10           
     )
     
     await async_pool.open()

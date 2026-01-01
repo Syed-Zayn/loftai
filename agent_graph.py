@@ -122,10 +122,11 @@ def get_secure_upload_link():
 tools = [save_lead_to_hubspot, generate_quote_and_deal, check_financing_eligibility, get_secure_upload_link]
 
 # 4. Initialize Model
+# NOTE: Temperature lowered to 0.1 to FORCE strict adherence to bullet point formatting.
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=GOOGLE_API_KEY,
-    temperature=0.1 # Very low temp for strict formatting adherence
+    temperature=0.1 
 ).bind_tools(tools)
 
 # --- 5. UPDATED STATE & LOGIC ---
@@ -190,7 +191,7 @@ def generate_node(state: AgentState):
     last_msg_content = messages[-1].content if messages else ""
     
     # --- 2. DYNAMIC CONVERSION TRIGGER LOGIC (Updated Rule) ---
-    # Trigger after 2-3 human messages
+    # Trigger after 2-3 human messages.
     human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
     
     # Trigger the call to action on the 2nd message onwards
@@ -199,8 +200,8 @@ def generate_node(state: AgentState):
     conversion_instruction = ""
     if should_trigger_meeting:
         conversion_instruction = """
-        [MANDATORY ACTION]
-        At the end of your response, you MUST append this specific text exactly (on a new line):
+        [MANDATORY CLOSING]
+        You MUST end your response with this exact text on a new line:
 
         "Would you like to schedule a call with one of our experts for a more detailed discussion?
         https://calendly.com/fandlgroupllc/30min"
@@ -235,7 +236,7 @@ def generate_node(state: AgentState):
              clean_messages[-1] = HumanMessage(content=clean_text)
 
     else:
-        # --- 4. ADVANCED CUSTOMER PERSONA PROMPTS (Strict Client Rules) ---
+        # --- 4. ADVANCED CUSTOMER PERSONA PROMPTS (Updated for 100% Satisfaction) ---
         
         business_rules = """
         *** CORE BUSINESS RULES & FACTS (ALWAYS TRUE) ***
@@ -247,27 +248,31 @@ def generate_node(state: AgentState):
         """
 
         base_prompt = f"""You are 'LOFTY', the Exclusive Design Concierge for F&L Design Builders.
+        You are a real human team member, NOT an AI.
         
         RETRIEVED CONTEXT:
         {context}
         
         {business_rules}
         
-        *** STRICT STYLE & FORMATTING GUIDELINES (DO NOT VIOLATE) ***
-        1. **LENGTH:** Keep your responses SHORT and CONCISE. 
-           - Avoid long paragraphs.
-           - Be direct and warm.
+        *** VISUAL FORMATTING ENGINE (STRICT COMPLIANCE REQUIRED) ***
+        1. **NO PARAGRAPHS FOR LISTS:** - Whenever you list services, steps, or features, you MUST use a vertical list.
+           - You MUST insert a Double Newline (`\\n\\n`) before the list starts.
         
-        2. **FORMATTING:** - If you mention more than one service or option, you MUST use bullet points.
-           - Example Format:
+        2. **THE BULLET POINT RULE:**
+           - Correct Format:
              "We specialize in:
-             * Service A
-             * Service B"
+             
+             * Item 1
+             * Item 2
+             * Item 3"
+           
+           - Incorrect Format: "We specialize in Item 1, Item 2, and Item 3."
         
         3. **TONE:** Personalized and Human. 
-           - Do NOT sound like ChatGPT or a Robot.
-           - Do NOT use formal "AI" language like "I can assist you with that." 
-           - Instead say: "I'd love to help with that."
+           - **FORBIDDEN:** "I can assist," "As an AI," "Here is the list," emojis.
+           - **ALLOWED:** "I'd love to help," "We offer," "Here are the options."
+           - Keep it short. Max 2-3 sentences of intro text before any list.
         
         4. **FORBIDDEN ITEMS:**
            - **NO EMOJIS.** (Strictly prohibited).
@@ -304,7 +309,7 @@ def generate_node(state: AgentState):
             3. Ask about "Energy Flow" (Feng Shui).
             
             *** SCENARIO HANDLING ***:
-            - **Services?** -> List them using bullet points.
+            - **Services?** -> List them using the Bullet Point Rule immediately.
             - **Quote?** -> "I can generate a preliminary quote. I just need a few details." (Call tool).
             - **Budget?** -> Mention "8-Months Same-As-Cash financing".
             - **Furniture?** -> Mention "Venicasa Partnership".

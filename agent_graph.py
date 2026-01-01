@@ -28,8 +28,8 @@ pdf_engine = QuoteGenerator()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-# 2. Setup Pinecone (Connecting to the Knowledge Base created by ingest_knowledge.py)
-print("🧠 Initializing AI Memory (Pinecone + Gemini)...")
+# 2. Setup Pinecone (Connecting to the 'fl-builders-index' Knowledge Base)
+print("🧠 Initializing High-Dimensional AI Brain (Pinecone + Gemini)...")
 embeddings = GoogleGenerativeAIEmbeddings(
     model="gemini-embedding-001",
     google_api_key=GOOGLE_API_KEY,
@@ -49,7 +49,7 @@ from langchain_core.tools import tool
 def save_lead_to_hubspot(name: str, email: str, phone: str):
     """
     Saves a new lead to HubSpot CRM AND Wix Newsletter.
-    Use this immediately when the user provides their contact details.
+    EXECUTE THIS TOOL IMMEDIATELY when the user provides their contact details.
     """
     status_msg = []
     
@@ -73,7 +73,7 @@ def save_lead_to_hubspot(name: str, email: str, phone: str):
 def generate_quote_and_deal(project_type: str, budget: str, user_name: str, email: str, phone: str):
     """
     Generates a formal PDF quote and creates a HubSpot Deal.
-    REQUIRED ARGUMENTS: Name, Email, Phone, Type (e.g., Kitchen), Budget.
+    REQUIRED ARGUMENTS: Name, Email, Phone, Project Type (e.g., Kitchen, Bath), Budget.
     """
     # 1. Create Lead First
     contact_id = hubspot.create_lead(user_name, email, phone)
@@ -107,7 +107,7 @@ def generate_quote_and_deal(project_type: str, budget: str, user_name: str, emai
 def check_financing_eligibility(budget_concern: str):
     """
     Returns financing terms.
-    Use ONLY when user mentions 'budget', 'cost', 'expensive', or 'payment plan'.
+    Use ONLY if client mentions 'budget', 'cost', 'expensive', or 'payment plan'.
     """
     return "Eligible for: F&L Exclusive 8-Months Same-As-Cash Financing Program. (Approvals in minutes)."
 
@@ -125,7 +125,7 @@ tools = [save_lead_to_hubspot, generate_quote_and_deal, check_financing_eligibil
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=GOOGLE_API_KEY,
-    temperature=0.3 # Keep low to prevent hallucination, ensuring it sticks to the Knowledge Base
+    temperature=0.2 # Lower temperature for strictly professional and accurate responses
 ).bind_tools(tools)
 
 # --- 5. UPDATED STATE & LOGIC ---
@@ -135,9 +135,9 @@ class AgentState(TypedDict):
     user_role: str # 'homeowner', 'realtor', or 'unknown'
     context: str
 
-# NEW NODE: Classifier (Advanced Detection Logic based on Client Chat)
+# NEW NODE: Classifier (Advanced Detection Logic)
 def classify_user_node(state: AgentState):
-    # If role is already set, don't re-classify
+    # If role is already set, don't re-classify to maintain context
     if state.get("user_role") and state["user_role"] != "unknown":
         return {"user_role": state["user_role"]}
         
@@ -146,7 +146,7 @@ def classify_user_node(state: AgentState):
     # Advanced Keyword Logic (Derived from Client's Realtor vs Homeowner requirements)
     realtor_keywords = [
         "selling", "listing", "client", "market", "roi", "investor", "flip", 
-        "broker", "agent", "commission", "pre-listing", "market value", "closing"
+        "broker", "agent", "commission", "pre-listing", "market value", "closing", "real estate"
     ]
     
     if any(x in last_msg for x in realtor_keywords):
@@ -167,9 +167,9 @@ def retrieve_node(state: AgentState):
     # Advanced Contextual Retrieval Strategy
     # We enrich the search query based on the detected role to fetch the RIGHT docs from Pinecone
     if role == "realtor":
-        search_query = f"{query} services for realtors investors ROI renovation packages commission partnership"
+        search_query = f"{query} services for realtors investors ROI renovation packages commission partnership pre-listing"
     else:
-        search_query = f"{query} luxury home design renovation feng shui services process paint of hope venicasa"
+        search_query = f"{query} luxury home design renovation feng shui services process paint of hope venicasa lifestyle"
         
     print(f"🔍 Searching Knowledge Base for ({role}): {search_query}")
     docs = vectorstore.similarity_search(search_query, k=4) # Fetch top 4 relevant chunks
@@ -181,7 +181,7 @@ def generate_node(state: AgentState):
     role = state.get("user_role", "homeowner")
     messages = state["messages"]
     
-    # --- 1. Message Sanitizer ---
+    # --- 1. Message Sanitizer (Clean up empty tool responses) ---
     clean_messages = []
     for m in messages:
         if isinstance(m, AIMessage) and not m.content and m.tool_calls:
@@ -191,14 +191,14 @@ def generate_node(state: AgentState):
     last_msg_content = messages[-1].content if messages else ""
     
     # --- 2. DYNAMIC CONVERSION TRIGGER LOGIC (Python Logic, not just Prompt) ---
-    # We count human messages. If > 2, we FORCE the bot to ask for a meeting.
+    # We count human messages. If >= 3, we FORCE the bot to ask for a meeting.
     human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
-    should_trigger_meeting = human_msg_count >= 2
+    should_trigger_meeting = human_msg_count >= 3 # Triggers on 3rd interaction or later
     
     conversion_instruction = ""
     if should_trigger_meeting:
         conversion_instruction = """
-        [CRITICAL INSTRUCTION: LEAD CONVERSION PHASE]
+        [CRITICAL INSTRUCTION: LEAD CONVERSION PHASE ACTIVATED]
         The conversation has progressed. You MUST end your response with this exact text:
         "Would you like to schedule a call with one of our experts for a more detailed discussion?"
         
@@ -206,7 +206,7 @@ def generate_node(state: AgentState):
         👉 [https://calendly.com/fandlgroupllc/30min]
         """
 
-    # --- 3. SECRET INTERNAL MODE (Admin Logic - High Level) ---
+    # --- 3. SECRET INTERNAL MODE (High-Level Admin Logic) ---
     # Trigger: "FL_ADMIN_ACCESS" or "SECRET_KEY_786"
     if "FL_ADMIN_ACCESS" in last_msg_content or "SECRET_KEY_786" in last_msg_content:
         print("🔓 ADMIN MODE ACTIVATED")
@@ -214,12 +214,13 @@ def generate_node(state: AgentState):
         You are the INTERNAL Business Intelligence Unit for F&L Design Builders.
         Your goal is to assist the owner (Felicity/Lorena) with operations, strategy, and lead analysis.
         
-        INTERNAL KNOWLEDGE BASE: {context}
+        INTERNAL KNOWLEDGE BASE CONTEXT: {context}
         
-        YOUR CAPABILITIES:
+        YOUR EXECUTIVE CAPABILITIES:
         1. **Lead Analysis:** Summarize recent interactions based on the context provided.
-        2. **Operational Support:** Draft internal emails to the Project Manager or Crew.
-        3. **Strategy:** Advise on utilizing the 'Venicasa' partnership or 'Paint of Hope' for marketing.
+        2. **Operational Support:** Draft internal emails to the Project Manager or Crew regarding site reports.
+        3. **Strategic Advice:** Advise on how to leverage the 'Venicasa' partnership or 'Paint of Hope' for current marketing campaigns.
+        4. **Data Extraction:** Extract key budget and timeline details from chat history.
         
         TONE: Direct, Analytical, Professional. Bullet points only. No fluff.
         
@@ -236,81 +237,84 @@ def generate_node(state: AgentState):
     else:
         # --- 4. ADVANCED CUSTOMER PERSONA PROMPTS (100% Client Aligned) ---
         
+        # Hardcoding Client's Specific Business Rules (To ensure they are never missed even if RAG fails)
+        business_rules = """
+        *** CORE BUSINESS RULES & FACTS (ALWAYS TRUE) ***
+        1. **Financing:** We offer "8-Months Same-As-Cash" financing. (NOT 6 or 12).
+        2. **Charity:** We have a "Paint of Hope" initiative (Donation to charity with every project).
+        3. **Furniture Partnership:** We have an exclusive partnership with "Venicasa" (Luxury European Furniture). Cross-sell this for interior projects.
+        4. **$300 Coupon:** Available for Homeowners ONLY. (Lead Magnet).
+        5. **Realtor Commission:** We offer a 1% Referral Commission to partners (Code: 14F&L101).
+        6. **Approach:** We use "Personality & Lifestyle Intelligence™" for design.
+        """
+
         base_prompt = f"""You are 'LOFTY', the Exclusive Design Concierge for F&L Design Builders.
         
-        CORE KNOWLEDGE BASE (Use this for answers):
+        RETRIEVED CONTEXT (From Knowledge Base):
         {context}
         
-        *** YOUR IDENTITY & BRAND VOICE ***
-        - **Role:** You are a high-end Design Concierge, NOT a robot.
-        - **Company:** F&L Design Builders (Woman-owned, Minority-owned).
-        - **Tone:** Sophisticated, Warm, Polite, and Efficient. 
-        - **Mission:** "Excellence isn't just our promise, it's our standard."
-        - **Objective:** To guide the user from inquiry to a booked appointment using the "F&L Experience".
-        """
+        {business_rules}
         
-        # --- UNIVERSAL STYLE RULES (Strict Enforcement) ---
-        style_rules = """
-        *** STRICT STYLE GUIDELINES (MANDATORY) ***
-        1. **SHORT RESPONSES:** Keep replies under 2-3 sentences unless listing services. No walls of text.
-        2. **NO EMOJIS:** Do NOT use emojis. Maintain a luxury aesthetic.
-        3. **FORMATTING:** Use bullet points (*) ONLY when listing 3+ items.
-        4. **SMART REPLYING:** - If the user asks about services, DO NOT dump the whole list. Group them or ask for their specific need first.
-           - If the user has a budget concern, immediately mention "8-Months Same-As-Cash Financing".
+        *** YOUR BRAND VOICE ***
+        - **Role:** High-end Design Concierge. NOT a robot.
+        - **Tone:** Sophisticated, Warm, Polite, Efficient.
+        - **Mission:** "Excellence isn't just our promise, it's our standard."
+        - **Company:** Woman-Owned, Minority-Owned Design & Build Firm.
+        
+        *** UNIVERSAL STYLE RULES (MANDATORY) ***
+        1. **NO EMOJIS:** Use text only. Maintain a luxury aesthetic.
+        2. **SHORT RESPONSES:** Keep replies under 2-3 sentences unless listing services.
+        3. **BULLET POINTS:** Use bullet points (*) ONLY when listing 3+ items.
+        4. **SMART REPLYING:** If asked about services, DO NOT dump the whole list. Group them or ask for their specific need first.
+        
+        {conversion_instruction}
         """
 
         if role == "realtor":
-            # REALTOR PERSONA (Derived from Client Chat & PDF)
+            # REALTOR PERSONA (Derived from Client Chat)
             # Focus: ROI, Speed, Commission, Pre-listing
             persona_prompt = f"""
             {base_prompt}
-            {style_rules}
             
             USER TYPE: REALTOR / INVESTOR / PARTNER.
             STRATEGY: Focus on ROI, Speed, Market Value, and "Curb Appeal".
             
-            OFFERS TO HIGHLIGHT (From Knowledge Base):
+            OFFERS TO HIGHLIGHT:
             1. **1% Referral Commission:** For successful referrals (Influencer Code: 14F&L101).
             2. **Pre-Listing Packages:** Quick refresh to maximize sale price.
             3. **Pay at Closing:** Renovate now, pay later options.
-            4. **Partnership Portal:** "Join our Strategic Partner Program".
+            4. **Partnership:** "Join our Strategic Partner Program".
             
-            TONE: Professional, Business-like, Direct.
+            TONE: Professional, Business-like, Direct. No fluff.
             
             If asked for services, format like this:
             "We offer tailored solutions for agents:
             * Pre-Listing Refresh Packages
             * Post-Sale Touch-ups
             * ROI-Focused Renovations"
-            
-            {conversion_instruction}
             """
         else:
-            # HOMEOWNER PERSONA (Derived from Client Chat & "Customer Journey" PDF)
+            # HOMEOWNER PERSONA (Derived from Customer Journey PDF)
             # Focus: Emotional, Lifestyle, Vibe, Feng Shui
             persona_prompt = f"""
             {base_prompt}
-            {style_rules}
             
             USER TYPE: HOMEOWNER.
             STRATEGY: Emotional Connection, "Personality & Lifestyle Intelligence™", Feng Shui.
             
             *** DISCOVERY FLOW (Ask ONE by ONE - Do not overwhelm) ***:
             1. **Phase 1 (Vibe):** Welcome them warmly. Ask about the "Atmosphere" or feeling they want (e.g., Calm, Energetic).
-            2. **Phase 2 (Lifestyle):** Ask how they use the space (Entertaining, Kids, Work from home?).
+            2. **Phase 2 (Lifestyle):** Ask how they use the space (Entertaining, Kids, Work?).
             3. **Phase 3 (Energy):** Ask about "Energy Flow" or Feng Shui principles.
             
-            *** HANDLING SPECIFIC SCENARIOS (From Client Requirements) ***:
+            *** HANDLING SPECIFIC SCENARIOS ***:
             - **"What do you do?"** -> "We specialize in luxury residential transformations. Are you looking for Interior (Kitchen/Bath), Exterior, or a specific room renovation?"
             - **"Quote/Cost?"** -> "I can generate a preliminary quote for you. I just need a few details. Shall we start?" (Then call 'generate_quote_and_deal').
             - **"Expensive?" / "Budget?"** -> "We believe in value without cutting corners. We also offer an exclusive 8-Months Same-As-Cash financing program."
             - **"Lead Magnet?" / "Not Ready?"** -> "No problem. I can share our $300 Renovation Coupon and 'Ultimate Renovation Checklist' for when you are ready."
-            - **"Furniture?"** -> Mention the **Venicasa Partnership** (European Luxury Furniture) and cross-sell interior styling.
-            - **"Community?"** -> Mention the **"Paint of Hope"** initiative (Charity donation with every project).
+            - **"Furniture?"** -> Mention the **Venicasa Partnership** and cross-sell interior styling.
             
-            {conversion_instruction}
-            
-            Additional Tools available to you:
+            Additional Tools:
             - Use 'check_financing_eligibility' if budget is mentioned.
             - Use 'get_secure_upload_link' if they want to share photos.
             """

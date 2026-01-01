@@ -41,7 +41,7 @@ vectorstore = PineconeVectorStore(
     pinecone_api_key=PINECONE_API_KEY
 )
 
-# 3. Define Tools (Jo pehle thay, same)
+# 3. Define Tools
 from langchain_core.tools import tool
 
 @tool
@@ -57,7 +57,7 @@ def save_lead_to_hubspot(name: str, email: str, phone: str):
     else:
         status_msg.append(f"HubSpot ID: {contact_id}")
 
-    # 2. Save to Wix (Newsletter/Marketing) - NEW STEP
+    # 2. Save to Wix (Newsletter/Marketing)
     wix_success = wix.add_contact_to_wix(name, email, phone)
     if wix_success:
         status_msg.append("Added to Wix Newsletter")
@@ -74,14 +74,13 @@ def generate_quote_and_deal(project_type: str, budget: str, user_name: str, emai
     contact_id = hubspot.create_lead(user_name, email, phone)
     wix.add_contact_to_wix(user_name, email, phone)
     
-    # 2. Create Deal FIRST to get the ID (Abhi PDF link empty rahega)
-    # Hum temporary link bhejenge, baad mein update bhi kar sakte hain
+    # 2. Create Deal FIRST
     deal_id = hubspot.create_deal_with_quote(contact_id, project_type, budget, "Generating...")
     
     if "Error" in str(deal_id):
         return f"Failed to create deal: {deal_id}"
 
-    # 3. Generate PDF NOW (Using the Real Deal ID)
+    # 3. Generate PDF NOW
     try:
         # Note: pdf_engine.generate_pdf ab 4th argument (deal_id) lega
         result = pdf_engine.generate_pdf(user_name, project_type, budget, deal_id)
@@ -129,7 +128,7 @@ class AgentState(TypedDict):
     user_role: str # 'homeowner', 'realtor', or 'unknown'
     context: str
 
-# NEW NODE: Classifier (Pehchano banda kaun hai)
+# NEW NODE: Classifier
 def classify_user_node(state: AgentState):
     # Agar role pehle se set hai to dobara check mat karo
     if state.get("user_role") and state["user_role"] != "unknown":
@@ -138,7 +137,6 @@ def classify_user_node(state: AgentState):
     last_msg = state["messages"][-1].content.lower()
     
     # Simple Keyword Logic (Fast & Reliable)
-    # Production grade: You can use a small LLM call here too, but keywords are faster.
     if any(x in last_msg for x in ["selling", "listing", "client", "market", "roi", "investor", "flip", "broker", "agent"]):
         detected_role = "realtor"
         print("🕵️ Detected User Role: REALTOR/INVESTOR")
@@ -155,7 +153,6 @@ def retrieve_node(state: AgentState):
     role = state.get("user_role", "homeowner")
     
     # Contextual Retrieval
-    # Agar Realtor hai to hum query mein 'business' keywords inject kar sakte hain
     if role == "realtor":
         search_query = f"{query} services for realtors investors ROI"
     else:
@@ -171,101 +168,100 @@ def generate_node(state: AgentState):
     role = state.get("user_role", "homeowner")
     messages = state["messages"]
     
-    # --- 1. Message Sanitizer (Empty content fix) ---
+    # --- 1. Message Sanitizer ---
     clean_messages = []
     for m in messages:
         if isinstance(m, AIMessage) and not m.content and m.tool_calls:
             m.content = "Processing request..." 
         clean_messages.append(m)
     
-    # Get the last user message content securely
     last_msg_content = messages[-1].content if messages else ""
     
     # --- 2. SECRET INTERNAL MODE (Admin Logic) ---
-    # Trigger: Agar user "FL_ADMIN_ACCESS" ya "SECRET_KEY_786" likhe
     if "FL_ADMIN_ACCESS" in last_msg_content or "SECRET_KEY_786" in last_msg_content:
         print("🔓 ADMIN MODE ACTIVATED")
-        
         system_prompt = f"""
         You are the INTERNAL Business Intelligence Unit for F&L Design Builders.
         Your goal is to assist the business owner with operations and strategy.
-        
         INTERNAL CONTEXT FROM DATABASE: {context}
+        TONE: Direct, Analytical, Professional. Use bullet points.
         
-        CAPABILITIES & RULES:
-        1. **Lead Analysis:** Summarize recent leads, focusing on Budget, Timeline, and Source.
-        2. **Drafting:** Write internal memos, newsletters, or contractor emails.
-        3. **Strategy:** Explain business strategies based on uploaded SOPs (PDFs).
-        
-        TONE:
-        - Direct, Analytical, Professional.
-        - NO 'Concierge' fluff. Be extremely concise.
-        - Use bullet points for all data.
-
         CRITICAL ACTION TRIGGER:
         - If the owner asks to generate a quote manually: 
           1. Ask for Client Name, Email, Phone, and Budget.
           2. THEN call the 'generate_quote_and_deal' tool immediately.
         """
-        
-        # Secret Key ko user message se hata dein taake LLM confuse na ho
         if isinstance(clean_messages[-1], HumanMessage):
              clean_text = last_msg_content.replace("FL_ADMIN_ACCESS", "").replace("SECRET_KEY_786", "")
              clean_messages[-1] = HumanMessage(content=clean_text)
 
     else:
-        # --- 3. NORMAL CUSTOMER MODES (High-Level Advanced Persona) ---
+        # --- 3. CUSTOMER MODES (UPDATED TO CLIENT SPECS) ---
         base_prompt = f"""You are 'LOFTY', the Exclusive Design Concierge for F&L Design Builders.
         CONTEXT FROM DATABASE: {context}
         """
         
+        # --- UNIVERSAL STYLE RULES (Applied to both Personas) ---
+        style_rules = """
+        *** STRICT STYLE & FORMATTING RULES (DO NOT IGNORE) ***
+        1. **SHORT RESPONSES:** Your replies must be SHORT and concise. Avoid long paragraphs.
+        2. **NO EMOJIS:** Do NOT use emojis or emoticons under any circumstances. (Strict Instruction).
+        3. **FORMATTING:** Use bullet points (*) for lists to provide better clarity.
+        4. **TONE:** Personalized, Professional, and Human-like. Avoid robotic/ChatGPT tones.
+        5. **IDENTITY:** Never mention you are an AI. You are a Design Concierge.
+
+        *** LEAD CONVERSION TRIGGER (MANDATORY) ***
+        - Check the conversation history.
+        - After 2–3 user questions or interactions, you MUST include this exact lead-converting message at the end:
+        
+        "Would you like to schedule a call with one of our experts for a more detailed discussion?"
+        
+        AND THEN PROVIDE THIS LINK ON A NEW LINE:
+        👉 [https://calendly.com/fandlgroupllc/30min]
+        """
+
         if role == "realtor":
-            # Realtor Persona: Business-like, Efficient (Updated: No Emojis)
-            persona_prompt = """
+            # Realtor Persona
+            persona_prompt = f"""
+            {style_rules}
             USER DETECTED: REALTOR / INVESTOR / PARTNER.
-            TONE: Professional, ROI-Focused, Efficient.
-            STRICT RULE: NO EMOJIS.
+            FOCUS: ROI, Market Value, Turnkey Solutions.
             
             INSTRUCTIONS:
             1. Focus on 'Pre-Listing Packages', 'Market Value', and 'Turnkey Solutions'.
             2. Do NOT offer the $300 homeowner coupon.
             3. Mention the '1% Referral Commission' program.
-            4. Keep answers short and use bullet points (max 5) for readability.
+            
+            Example Approach:
+            "Here are some of the services we offer for agents:
+            * Pre-Listing Renovations
+            * Market Value Consultation
+            * Quick Turnaround Projects"
             """
         else:
-            # Homeowner Persona: The "F&L Experience" (Client Approved - Advanced Specs)
-            persona_prompt = """
+            # Homeowner Persona (The Main One)
+            persona_prompt = f"""
+            {style_rules}
             USER DETECTED: HOMEOWNER.
-            ROLE: You are 'LOFTY', a high-end Design Concierge.
+            ROLE: High-end Design Concierge.
             
-            CRITICAL IDENTITY RULES (DO NOT BREAK):
-            1. **IDENTITY:** NEVER call yourself an AI, Bot, or Assistant. You are a human-like Design Concierge.
-            2. **TONE:** Sophisticated, Warm, and Polite.
-            3. **NO EMOJIS:** Do NOT use emojis under any circumstances.
-            4. **SHORT RESPONSES:** Keep messages short (under 2-3 sentences). Do NOT write paragraphs.
-
-            *** THE GOLDEN RULE OF CONVERSATION ***:
-            - ASK ONLY ONE QUESTION AT A TIME.
-            - DO NOT bundle multiple questions in one message.
-            - Wait for the user to answer before moving to the next topic.
-
-            DISCOVERY FLOW (Step-by-Step):
-            1. First, just welcome them warmly and ask ONE simple question about the 'Atmosphere' or 'Vibe' they want.
-            2. Once they answer, THEN ask about 'Lifestyle/Logistics'.
-            3. Finally, ask about 'Energy Flow'.
+            DISCOVERY FLOW (Step-by-Step - Ask ONE thing at a time):
+            1. First, welcome them warmly and briefly ask about the 'Atmosphere' or 'Vibe'.
+            2. Once they answer, ask about 'Lifestyle/Logistics'.
+            3. Finally, ask about 'Energy Flow' (Feng Shui).
             
-            DO NOT output the whole list at once.
+            DO NOT output the whole list at once. Keep it conversational.
 
-            *** THE MEETING TRIGGER (MANDATORY) ***:
-            After you have exchanged about 3-4 messages and gathered the basic requirements, you MUST ask:
-            "Are you planning a renovation soon? Our Project Manager is ready to meet you."
+            *** SPECIFIC LINKS & OFFERS (MANDATORY) ***
             
-            Then, strictly provide this scheduling link on a new line:
-            👉 [https://calendly.com/fandlgroupllc/30min]
+            1. **Scheduling Link:**
+               When you ask the "Lead Conversion Trigger" question (about scheduling a call), strictly provide this link on a new line:
+               👉 [https://calendly.com/fandlgroupllc/30min]
 
-            Additional Tools & Offers:
-            - If they ask for a quote -> Call 'generate_quote_and_deal'.
-            - If budget is tight -> Suggest "8-Months Same-As-Cash Financing".
+            2. **Additional Tools & Offers:**
+               - If they ask for a quote -> Call tool 'generate_quote_and_deal'.
+               - If budget is tight -> Suggest "8-Months Same-As-Cash Financing".
+               - If they have photos -> Provide the secure upload link tool.
             """
 
         system_prompt = base_prompt + persona_prompt
@@ -334,6 +330,3 @@ async def get_app():
     app = workflow.compile(checkpointer=checkpointer)
 
     return app
-
-
-

@@ -28,8 +28,8 @@ pdf_engine = QuoteGenerator()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
-# 2. Setup Pinecone (Connecting to the 'fl-builders-index' Knowledge Base)
-print("🧠 Initializing High-Dimensional AI Brain (Pinecone + Gemini)...")
+# 2. Setup Pinecone (Connecting to the Knowledge Base)
+print("🧠 Initializing AI Memory (Pinecone + Gemini)...")
 embeddings = GoogleGenerativeAIEmbeddings(
     model="gemini-embedding-001",
     google_api_key=GOOGLE_API_KEY,
@@ -42,14 +42,14 @@ vectorstore = PineconeVectorStore(
     pinecone_api_key=PINECONE_API_KEY
 )
 
-# 3. Define Tools (The "Hands" of the Agent)
+# 3. Define Tools
 from langchain_core.tools import tool
 
 @tool
 def save_lead_to_hubspot(name: str, email: str, phone: str):
     """
     Saves a new lead to HubSpot CRM AND Wix Newsletter.
-    EXECUTE THIS TOOL IMMEDIATELY when the user provides their contact details.
+    Use this immediately when the user provides their contact details.
     """
     status_msg = []
     
@@ -73,7 +73,7 @@ def save_lead_to_hubspot(name: str, email: str, phone: str):
 def generate_quote_and_deal(project_type: str, budget: str, user_name: str, email: str, phone: str):
     """
     Generates a formal PDF quote and creates a HubSpot Deal.
-    REQUIRED ARGUMENTS: Name, Email, Phone, Project Type (e.g., Kitchen, Bath), Budget.
+    REQUIRED ARGUMENTS: Name, Email, Phone, Type (e.g., Kitchen), Budget.
     """
     # 1. Create Lead First
     contact_id = hubspot.create_lead(user_name, email, phone)
@@ -107,7 +107,7 @@ def generate_quote_and_deal(project_type: str, budget: str, user_name: str, emai
 def check_financing_eligibility(budget_concern: str):
     """
     Returns financing terms.
-    Use ONLY if client mentions 'budget', 'cost', 'expensive', or 'payment plan'.
+    Use ONLY when user mentions 'budget', 'cost', 'expensive', or 'payment plan'.
     """
     return "Eligible for: F&L Exclusive 8-Months Same-As-Cash Financing Program. (Approvals in minutes)."
 
@@ -125,7 +125,7 @@ tools = [save_lead_to_hubspot, generate_quote_and_deal, check_financing_eligibil
 model = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=GOOGLE_API_KEY,
-    temperature=0.2 # Lower temperature for strictly professional and accurate responses
+    temperature=0.2 # Kept low for consistent formatting
 ).bind_tools(tools)
 
 # --- 5. UPDATED STATE & LOGIC ---
@@ -137,13 +137,13 @@ class AgentState(TypedDict):
 
 # NEW NODE: Classifier (Advanced Detection Logic)
 def classify_user_node(state: AgentState):
-    # If role is already set, don't re-classify to maintain context
+    # If role is already set, don't re-classify
     if state.get("user_role") and state["user_role"] != "unknown":
         return {"user_role": state["user_role"]}
         
     last_msg = state["messages"][-1].content.lower()
     
-    # Advanced Keyword Logic (Derived from Client's Realtor vs Homeowner requirements)
+    # Advanced Keyword Logic
     realtor_keywords = [
         "selling", "listing", "client", "market", "roi", "investor", "flip", 
         "broker", "agent", "commission", "pre-listing", "market value", "closing", "real estate"
@@ -153,7 +153,7 @@ def classify_user_node(state: AgentState):
         detected_role = "realtor"
         print("🕵️ Detected User Role: REALTOR/INVESTOR")
     else:
-        # Default is homeowner (Renovation, Kitchen, Bath, Design, etc.)
+        # Default is homeowner
         detected_role = "homeowner"
         print("🏠 Detected User Role: HOMEOWNER")
         
@@ -164,15 +164,14 @@ def retrieve_node(state: AgentState):
     query = last_msg.content
     role = state.get("user_role", "homeowner")
     
-    # Advanced Contextual Retrieval Strategy
-    # We enrich the search query based on the detected role to fetch the RIGHT docs from Pinecone
+    # Advanced Contextual Retrieval
     if role == "realtor":
         search_query = f"{query} services for realtors investors ROI renovation packages commission partnership pre-listing"
     else:
         search_query = f"{query} luxury home design renovation feng shui services process paint of hope venicasa lifestyle"
         
     print(f"🔍 Searching Knowledge Base for ({role}): {search_query}")
-    docs = vectorstore.similarity_search(search_query, k=4) # Fetch top 4 relevant chunks
+    docs = vectorstore.similarity_search(search_query, k=4) 
     context_text = "\n".join([d.page_content for d in docs])
     return {"context": context_text}
 
@@ -181,7 +180,7 @@ def generate_node(state: AgentState):
     role = state.get("user_role", "homeowner")
     messages = state["messages"]
     
-    # --- 1. Message Sanitizer (Clean up empty tool responses) ---
+    # --- 1. Message Sanitizer ---
     clean_messages = []
     for m in messages:
         if isinstance(m, AIMessage) and not m.content and m.tool_calls:
@@ -190,15 +189,15 @@ def generate_node(state: AgentState):
     
     last_msg_content = messages[-1].content if messages else ""
     
-    # --- 2. DYNAMIC CONVERSION TRIGGER LOGIC (Python Logic, not just Prompt) ---
+    # --- 2. DYNAMIC CONVERSION TRIGGER LOGIC ---
     # We count human messages. If >= 3, we FORCE the bot to ask for a meeting.
     human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
-    should_trigger_meeting = human_msg_count >= 3 # Triggers on 3rd interaction or later
+    should_trigger_meeting = human_msg_count >= 3 
     
     conversion_instruction = ""
     if should_trigger_meeting:
         conversion_instruction = """
-        [CRITICAL INSTRUCTION: LEAD CONVERSION PHASE ACTIVATED]
+        [CRITICAL INSTRUCTION: LEAD CONVERSION PHASE]
         The conversation has progressed. You MUST end your response with this exact text:
         "Would you like to schedule a call with one of our experts for a more detailed discussion?"
         
@@ -206,23 +205,23 @@ def generate_node(state: AgentState):
         👉 [https://calendly.com/fandlgroupllc/30min]
         """
 
-    # --- 3. SECRET INTERNAL MODE (High-Level Admin Logic) ---
+    # --- 3. SECRET INTERNAL MODE (High-Level Strategic Partner) ---
     # Trigger: "FL_ADMIN_ACCESS" or "SECRET_KEY_786"
     if "FL_ADMIN_ACCESS" in last_msg_content or "SECRET_KEY_786" in last_msg_content:
         print("🔓 ADMIN MODE ACTIVATED")
         system_prompt = f"""
-        You are the INTERNAL Business Intelligence Unit for F&L Design Builders.
-        Your goal is to assist the owner (Felicity/Lorena) with operations, strategy, and lead analysis.
+        You are the INTERNAL Strategic Operations Director for F&L Design Builders.
+        Your goal is to provide high-level insights, draft operational comms, and analyze leads for Felicity & Lorena.
         
-        INTERNAL KNOWLEDGE BASE CONTEXT: {context}
+        INTERNAL KNOWLEDGE BASE: {context}
         
         YOUR EXECUTIVE CAPABILITIES:
-        1. **Lead Analysis:** Summarize recent interactions based on the context provided.
-        2. **Operational Support:** Draft internal emails to the Project Manager or Crew regarding site reports.
-        3. **Strategic Advice:** Advise on how to leverage the 'Venicasa' partnership or 'Paint of Hope' for current marketing campaigns.
-        4. **Data Extraction:** Extract key budget and timeline details from chat history.
+        1. **Lead Analysis:** Summarize recent interactions, highlighting Budget, Timeline, and Sentiment.
+        2. **Operational Support:** Draft professional internal emails to Project Managers (Crew) regarding site reports/updates.
+        3. **Strategic Marketing:** Advise on leveraging 'Venicasa' (Furniture) or 'Paint of Hope' (Charity) in current campaigns.
+        4. **Financial Extraction:** Extract and format budget details for the '8-Months Same-As-Cash' program.
         
-        TONE: Direct, Analytical, Professional. Bullet points only. No fluff.
+        TONE: Direct, Analytical, Professional. STRICTLY USE BULLET POINTS for all data. No fluff.
         
         CRITICAL ACTION TRIGGER:
         - If the owner asks to generate a quote manually: 
@@ -237,7 +236,7 @@ def generate_node(state: AgentState):
     else:
         # --- 4. ADVANCED CUSTOMER PERSONA PROMPTS (100% Client Aligned) ---
         
-        # Hardcoding Client's Specific Business Rules (To ensure they are never missed even if RAG fails)
+        # Hardcoding Client's Specific Business Rules
         business_rules = """
         *** CORE BUSINESS RULES & FACTS (ALWAYS TRUE) ***
         1. **Financing:** We offer "8-Months Same-As-Cash" financing. (NOT 6 or 12).
@@ -259,13 +258,16 @@ def generate_node(state: AgentState):
         - **Role:** High-end Design Concierge. NOT a robot.
         - **Tone:** Sophisticated, Warm, Polite, Efficient.
         - **Mission:** "Excellence isn't just our promise, it's our standard."
-        - **Company:** Woman-Owned, Minority-Owned Design & Build Firm.
         
-        *** UNIVERSAL STYLE RULES (MANDATORY) ***
+        *** STRICT FORMATTING RULES (MANDATORY) ***
         1. **NO EMOJIS:** Use text only. Maintain a luxury aesthetic.
         2. **SHORT RESPONSES:** Keep replies under 2-3 sentences unless listing services.
-        3. **BULLET POINTS:** Use bullet points (*) ONLY when listing 3+ items.
-        4. **SMART REPLYING:** If asked about services, DO NOT dump the whole list. Group them or ask for their specific need first.
+        3. **BULLET POINTS:** You MUST use bullet points (*) whenever mentioning 2 or more services, options, or features.
+        4. **SMART REPLYING:** If asked about services ("What do you do?"), DO NOT write a paragraph. Respond with a bulleted summary like this:
+           "We specialize in luxury residential transformations. Are you looking for:
+           * Interior Renovations (Kitchen/Bath)
+           * Exterior Projects (Decks/Siding)
+           * Or a Specific Room Update?"
         
         {conversion_instruction}
         """
@@ -308,7 +310,7 @@ def generate_node(state: AgentState):
             3. **Phase 3 (Energy):** Ask about "Energy Flow" or Feng Shui principles.
             
             *** HANDLING SPECIFIC SCENARIOS ***:
-            - **"What do you do?"** -> "We specialize in luxury residential transformations. Are you looking for Interior (Kitchen/Bath), Exterior, or a specific room renovation?"
+            - **"What do you do?"** -> Use the BULLET POINT format defined above.
             - **"Quote/Cost?"** -> "I can generate a preliminary quote for you. I just need a few details. Shall we start?" (Then call 'generate_quote_and_deal').
             - **"Expensive?" / "Budget?"** -> "We believe in value without cutting corners. We also offer an exclusive 8-Months Same-As-Cash financing program."
             - **"Lead Magnet?" / "Not Ready?"** -> "No problem. I can share our $300 Renovation Coupon and 'Ultimate Renovation Checklist' for when you are ready."

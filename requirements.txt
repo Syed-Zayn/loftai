@@ -6,7 +6,7 @@ requests
 httpx
 pydantic
 python-multipart  # Required for Form data handling in API
-
+textwrap
 # --- AI & LangChain Ecosystem ---
 langchain-core
 langchain-community
@@ -30,3 +30,4 @@ google-auth
 langgraph-checkpoint-postgres
 schedule
 reportlab
+

@@ -9,12 +9,14 @@ from hubspot.crm.contacts.exceptions import ApiException
 from hubspot.crm.deals.exceptions import ApiException as DealApiException
 from dotenv import load_dotenv
 
+# 1. Load Environment Variables
 load_dotenv()
 
 HUBSPOT_ACCESS_TOKEN = os.getenv("HUBSPOT_ACCESS_TOKEN")
 
 class HubSpotManager:
     def __init__(self):
+        # Check if Token exists
         if not HUBSPOT_ACCESS_TOKEN:
             print("⚠️ HubSpot Token not found! CRM sync will be simulated.")
             self.client = None
@@ -39,44 +41,36 @@ class HubSpotManager:
         except:
             return "0.00"
 
-    def create_or_update_contact(self, email: str, **kwargs):
+    # --- CRITICAL NEW FUNCTION: Force Update Contact ---
+    def update_contact_details(self, contact_id, name, phone):
         """
-        Creates or updates a contact. 
-        Handles 'firstname' and 'lastname' by merging them into properties.
+        Updates an existing contact's Name and Phone.
+        This fixes the issue where 'Website Visitor' was not changing to the Real Name.
         """
-        # 1. Prepare Properties
-        properties = {
-            "email": email,
-            "phone": kwargs.get("phone", ""),
-            # Agar 'name' aaye to usay use karo, warna firstname/lastname check karo
-            "firstname": kwargs.get("firstname", kwargs.get("name", "").split(" ")[0]),
-            "lastname": kwargs.get("lastname", "")
-        }
+        if not self.client: return
         
-        # Fallback name splitting
-        if "name" in kwargs and not properties["lastname"]:
-            parts = kwargs["name"].split(" ", 1)
-            properties["firstname"] = parts[0]
-            if len(parts) > 1:
-                properties["lastname"] = parts[1]
-
-        # 2. HubSpot API Call
         try:
-            # FIX 1: Use 'ContactInput' because we renamed it in imports
+            # Split Name into First and Last
+            name_parts = name.strip().split(" ")
+            first_name = name_parts[0]
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+            
+            properties = {
+                "firstname": first_name,
+                "lastname": last_name,
+                "phone": phone
+            }
+            
             contact_input = ContactInput(properties=properties)
             
-            # FIX 2: Use correct argument name 'simple_public_object_input_for_create'
-            api_response = self.client.crm.contacts.basic_api.create(
-                simple_public_object_input_for_create=contact_input
+            # API Call to Update
+            self.client.crm.contacts.basic_api.update(
+                contact_id=contact_id,
+                simple_public_object_input=contact_input
             )
-            return api_response.id
-            
-        except ApiException as e:
-            if e.status == 409: # Already exists
-                print("Contact already exists.")
-                return "EXISTING_ID" 
-            print(f"Exception when creating contact: {e}")
-            return f"Error: {e}"
+            print(f"🔄 HubSpot Contact Updated: {contact_id} -> {name} | {phone}")
+        except Exception as e:
+            print(f"⚠️ Update Failed: {e}")
 
     def get_contact_id_by_email(self, email):
         """Helper to find a contact ID if they already exist."""
@@ -97,10 +91,26 @@ class HubSpotManager:
             print(f"❌ Search Error: {e}")
             return None
 
+    def create_or_update_contact(self, email: str, **kwargs):
+        """
+        Wrapper to ensure compatibility with other files using this name.
+        Redirects to create_lead logic.
+        """
+        name = kwargs.get("name", "")
+        if not name:
+             name = f"{kwargs.get('firstname', '')} {kwargs.get('lastname', '')}".strip()
+        
+        return self.create_lead(name, email, kwargs.get("phone", ""))
+
     def create_lead(self, name: str, email: str, phone: str):
+        """
+        Creates a new lead. 
+        CRITICAL FIX: If email exists (409 Error), it UPDATES the Name and Phone.
+        """
         if not self.client: return "simulated_contact_id_123"
 
         try:
+            # Prepare Data
             name_parts = name.strip().split(" ")
             first_name = name_parts[0]
             last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
@@ -116,24 +126,32 @@ class HubSpotManager:
             # Use ContactInput wrapper
             contact_input = ContactInput(properties=properties)
             
-            # Use correct argument name here as well
+            # Try to CREATE
             response = self.client.crm.contacts.basic_api.create(
                 simple_public_object_input_for_create=contact_input
             )
             print(f"✅ HubSpot Contact Created: {response.id}")
             return response.id
 
-        except Exception as e:
-            # Improved Error Handling for Duplicates
-            error_msg = str(e)
-            if "409" in error_msg or "already exists" in error_msg:
-                print(f"ℹ️ Contact {email} already exists. Fetching ID...")
+        except ApiException as e:
+            # --- DUPLICATE HANDLING LOGIC ---
+            # If Contact Already Exists (Error 409), UPDATE it instead of failing.
+            if e.status == 409: 
+                print(f"ℹ️ Contact {email} exists. Updating Name/Phone...")
                 existing_id = self.get_contact_id_by_email(email)
+                
                 if existing_id:
+                    # Force update the details
+                    self.update_contact_details(existing_id, name, phone)
                     return existing_id
             
             print(f"⚠️ HubSpot Contact Error: {e}")
+            # Return a dummy string so the bot doesn't crash
             return f"existing_user_{email}"
+            
+        except Exception as e:
+            print(f"⚠️ HubSpot Unexpected Error: {e}")
+            return f"error_{email}"
 
     def create_deal_with_quote(self, contact_id, project_type, budget, quote_link):
         if not self.client: return "simulated_deal_id_999"
@@ -150,10 +168,8 @@ class HubSpotManager:
                 "pipeline": "default",
                 "description": f"AI Generated Quote: {quote_link}\nIncludes 8-Month Financing Option."
             }
-            # Use DealInput wrapper
             deal_input = DealInput(properties=properties)
             
-            # Create Deal with correct argument
             deal_resp = self.client.crm.deals.basic_api.create(
                 simple_public_object_input_for_create=deal_input
             )
@@ -247,7 +263,7 @@ class HubSpotManager:
     # --- CLIENT PORTAL FUNCTION ---
     def get_deal_by_email(self, email):
         """
-        Wix Portal ke liye: Email se Contact dhoondta hai aur associated Deal/Project ka data lata hai.
+        Wix Portal Logic: Checks active deal by email.
         """
         if not self.client: 
             # Simulation Mode

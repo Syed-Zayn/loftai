@@ -1,5 +1,4 @@
 import os
-import asyncio
 from typing import Annotated, Literal, TypedDict
 from dotenv import load_dotenv
 
@@ -176,44 +175,63 @@ model = ChatGoogleGenerativeAI(
 
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
-    user_role: str # 'homeowner' or 'realtor'
+    intent: str # 'start', 'pricing', 'design', 'general', etc.
     context: str
 
-# NODE 1: Smart Classification
-def classify_user_node(state: AgentState):
-    if state.get("user_role"): return {"user_role": state["user_role"]}
-    
+# NODE 1: Smart Classification (Updated for 8-Flow Logic)
+def classify_intent_node(state: AgentState):
+    """
+    Decides which FLOW (1-8) the user is currently in based on Client Requirements.
+    """
     last_msg = state["messages"][-1].content.lower()
     
-    # Expanded Keyword List
-    realtor_keywords = [
-        "selling", "listing", "client", "market", "roi", "investor", "flip", 
-        "broker", "agent", "commission", "pre-listing", "market value", "closing"
-    ]
+    # FLOW 8: Human Handoff
+    if any(x in last_msg for x in ["human", "agent", "call me", "talk to someone", "callback"]):
+        return {"intent": "handoff"}
     
-    if any(x in last_msg for x in realtor_keywords):
-        return {"user_role": "realtor"}
-    return {"user_role": "homeowner"}
+    # FLOW 2: Start Project / Residential / Commercial
+    if any(x in last_msg for x in ["start", "build", "renovate", "new project", "addition", "remodel", "commercial", "residential"]):
+        return {"intent": "start_project"}
+
+    # FLOW 3: Design
+    if any(x in last_msg for x in ["design", "architect", "plans", "drawing", "blueprints"]):
+        return {"intent": "design"}
+
+    # FLOW 4: Pricing / Budget
+    if any(x in last_msg for x in ["price", "cost", "budget", "quote", "estimate", "fees", "expensive"]):
+        return {"intent": "pricing"}
+
+    # FLOW 5: Timeline
+    if any(x in last_msg for x in ["how long", "timeline", "schedule", "process", "updates", "time"]):
+        return {"intent": "timeline"}
+
+    # FLOW 6: Permits / Trust
+    if any(x in last_msg for x in ["permit", "license", "insured", "warranty", "inspection", "insurance"]):
+        return {"intent": "permits"}
+
+    # FLOW 7: Why Us / Trust
+    if any(x in last_msg for x in ["why you", "compare", "trust", "best", "portfolio", "reviews"]):
+        return {"intent": "why_us"}
+
+    # Login / Portal Check
+    if any(x in last_msg for x in ["login", "status", "portal", "files"]):
+        return {"intent": "login"}
+
+    # Default / General Query
+    return {"intent": "general"}
 
 # NODE 2: Contextual Retrieval
 def retrieve_node(state: AgentState):
     last_msg = state["messages"][-1].content
-    role = state.get("user_role", "homeowner")
-    
-    if role == "realtor":
-        query = f"{last_msg} realtor services commission ROI pre-listing partnership"
-    else:
-        query = f"{last_msg} luxury renovation design style timeline financing process paint of hope"
-        
-    # k=6 is optimal. Higher (30) creates noise and hallucinations.
-    docs = vectorstore.similarity_search(query, k=35)
-    context_text = "\n\n".join([f"[Source: {d.metadata.get('source', 'doc')}] {d.page_content}" for d in docs])
+    # Retrieve RAG context
+    docs = vectorstore.similarity_search(last_msg, k=30) 
+    context_text = "\n".join([d.page_content for d in docs])
     return {"context": context_text}
 
-# NODE 3: The Brain (Generation)
+# NODE 3: The Brain (Generation - Updated for FABDL 8 Flows)
 def generate_node(state: AgentState):
+    intent = state.get("intent", "general")
     context = state.get("context", "")
-    role = state.get("user_role", "homeowner")
     messages = state["messages"]
     
     # A. Sanitizer
@@ -222,91 +240,102 @@ def generate_node(state: AgentState):
         if isinstance(m, AIMessage) and not m.content and m.tool_calls:
             m.content = "Consulting records..." 
         clean_messages.append(m)
-    
-    # B. Conversion Trigger (The "Closer")
-    human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
-    should_trigger_meeting = human_msg_count in [2, 5]
-    
-    conversion_text = ""
-    if should_trigger_meeting:
-        conversion_text = """
-        [MANDATORY CLOSING]
-        End response with exactly:
-        
-        "Would you like to schedule a call with one of our experts for a more detailed discussion?
-        https://calendly.com/fandlgroupllc/30min"
-        """
 
-    # C. Dynamic Persona Prompt (With SMART FORMATTING)
-    common_rules = """
-    *** BRAND RULES ***
-    1. **NO EMOJIS.** Be sophisticated, concise, and professional.
-    2. **FORMATTING - CRITICAL:** - Use **Bullet Points** for services, steps, or options.
-       - Keep responses **SHORT** (Max 2-3 sentences). 
-       - No big paragraphs.
-    3. **IDENTITY:** - You are 'LOFTY', a Digital Design Concierge (NOT an AI). 
-       - Never say "As an AI language model".
-    4. **FINANCING:** Only mention '8-Months Same-As-Cash'.
-    5. **TIMELINE (STRICT):** NEVER guess specific weeks. ALWAYS say: "Timeline varies by project scope and complexity. We provide a detailed schedule during your consultation."
-    6. **LOCATION:** We serve the **DMV area** (Washington DC, Maryland & Virginia).
+    # --- DYNAMIC SYSTEM PROMPTS BASED ON FLOW ---
+    
+    base_instruction = """
+    You are 'LOFTY', the AI Assistant for F&L Design Builders (Fabdl).
+    Your tone is Professional, Welcoming, and Efficient.
+    Do NOT use large paragraphs. Use Bullet points.
+    Your location: Washington DC, Maryland & Virginia (DMV).
     """
 
-    if role == "realtor":
-        system_prompt = f"""
-        You are 'LOFTY', the Strategic Partner for Realtors & Investors at F&L Design Builders.
-        Your goal: Help them sell faster and maximize ROI.
-        
-        KNOWLEDGE: {context}
-        {common_rules}
-        
-        *** REALTOR PROTOCOL ***
-        - **Services:** Focus on "Pre-Listing Refresh", "Quick Turnaround", "Curb Appeal".
-        - **Partnership:** Emphasize the **1% Referral Commission**.
-        - **Logic:** Do not ask about "feelings". Ask about "timeline to list" and "budget".
-        
-        {conversion_text}
+    if intent == "start_project":
+        prompt = f"""{base_instruction}
+        **FLOW: Start a New Project**
+        User wants to build or renovate.
+        1. Acknowledge excitement.
+        2. Ask: "Great! What type of project are you planning? (Residential, Commercial, Renovation, or Addition?)"
+        3. If they answer type, Ask: "Do you already have plans, or do you need design help?"
+        4. Offer to book a consultation.
         """
-    else:
-        system_prompt = f"""
-        You are 'LOFTY', the Design Concierge for Homeowners at F&L Design Builders.
-        Your goal: Guide them from Vision to Reality with White-Glove service.
         
-        KNOWLEDGE: {context}
-        {common_rules}
-        
-        *** CRITICAL INSTRUCTION ***
-        - The retrieved documents contain a long 'Discovery Questionnaire'. **IGNORE IT.**
-        - You must ONLY ask the 3 questions listed below in the exact order.
-        - Do not ask about 'Atmosphere', 'Lifestyle', or 'Feng Shui' yet. That happens in the meeting.
-        
-        *** MANDATORY SCRIPT FLOW (Do not deviate) ***
-        
-        STEP 1: If user mentions a project (Kitchen, Bath, etc.), ASK exactly:
-        "What kind of style do you envision for the space?
-        * Modern
-        * Traditional
-        * Transitional
-        * Contemporary"
-        
-        STEP 2: Once they answer the style, ASK exactly:
-        "How soon are you looking to start this renovation? We can schedule a Project Manager to go deeper."
-        
-        STEP 3: Once they answer the timeline, ASK exactly:
-        "Could I please get your **Name** and **Phone Number** so our Project Manager can prepare for your consultation?"
-        
-        STEP 4: Once they provide Name/Phone, CALL tool 'save_lead_to_hubspot' and then SAY:
-        "Thank you. You can now schedule your meeting here: https://calendly.com/fandlgroupllc/30min"
-        
-        *** SCENARIO HANDLING ***
-        - **"Status/Login":** Use 'check_project_status' tool.
-        - **"Speak to Human":** Use 'request_immediate_callback' tool.
-        - **"Budget":** Mention 8-Month Financing.
-        - **"Services/Mission":** Use bullet points to list services from Knowledge.
-        
-        {conversion_text}
+    elif intent == "design":
+        prompt = f"""{base_instruction}
+        **FLOW: Design Services**
+        Explain we are a full Design-Build firm.
+        - Yes, design is included in our process.
+        - Yes, we work with external architects too.
+        - Yes, you are involved in every step.
+        End with: "Ready to start your Design Consultation?"
         """
 
-    final_input = [SystemMessage(content=system_prompt)] + clean_messages
+    elif intent == "pricing":
+        prompt = f"""{base_instruction}
+        **FLOW: Pricing & Budget**
+        Explain pricing depends on scope/materials.
+        - We offer value-engineering to stay in budget.
+        - No hidden fees. All costs discussed upfront.
+        - Mention: We offer **8-Months Same-As-Cash Financing**.
+        - ASK: "Do you have an estimated budget range? (Under $50k, $50k-150k, $150k+)"
+        """
+
+    elif intent == "timeline":
+        prompt = f"""{base_instruction}
+        **FLOW: Timeline & Process**
+        Outline the 5 Steps:
+        1. Consultation & Vision
+        2. Design & Planning
+        3. Budget Approval
+        4. Construction
+        5. Final Walkthrough
+        Say: "We provide a clear timeline after planning."
+        """
+
+    elif intent == "permits":
+        prompt = f"""{base_instruction}
+        **FLOW: Permits & Licensing**
+        Confirm:
+        - Yes, we handle ALL permits and approvals.
+        - Yes, we are Fully Licensed & Insured.
+        - Yes, we offer Warranties on our work.
+        """
+
+    elif intent == "why_us":
+        prompt = f"""{base_instruction}
+        **FLOW: Why Choose Fabdl?**
+        Highlight:
+        - One-team design & build
+        - Transparent pricing
+        - High-quality craftsmanship
+        - Stress-free project management
+        - Exclusive partnership with **Venicasa** (Luxury Furniture).
+        """
+
+    elif intent == "handoff":
+        prompt = f"""{base_instruction}
+        **FLOW: Human Handoff**
+        Say: "I'll connect you with a project specialist immediately."
+        Use tool 'request_immediate_callback' if they provide a number.
+        """
+        
+    elif intent == "login":
+        prompt = f"""{base_instruction}
+        **FLOW: Client Portal**
+        User wants to check status.
+        Use the 'check_project_status' tool using their email.
+        """
+
+    else:
+        # Greeting / General RAG
+        prompt = f"""{base_instruction}
+        **FLOW: General / Greeting**
+        If greeting: "👋 Hi! Welcome to F&L Design Builders. How can I help you today?"
+        If specific question, use this context: {context}
+        Keep it short.
+        """
+
+    final_input = [SystemMessage(content=prompt)] + clean_messages
     response = model.invoke(final_input)
     return {"messages": [response]}
 
@@ -317,7 +346,7 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
 
 # --- 6. GRAPH CONSTRUCTION ---
 workflow = StateGraph(AgentState)
-workflow.add_node("classify", classify_user_node)
+workflow.add_node("classify", classify_intent_node)
 workflow.add_node("retrieve", retrieve_node)
 workflow.add_node("agent", generate_node)
 workflow.add_node("tools", tool_node)
@@ -361,5 +390,3 @@ async def get_app():
     app = workflow.compile(checkpointer=checkpointer)
 
     return app
-
-

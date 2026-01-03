@@ -215,92 +215,96 @@ def generate_node(state: AgentState):
     role = state.get("user_role", "homeowner")
     messages = state["messages"]
     
-    # A. Sanitizer
+    # 1. MESSAGE SANITIZER
     clean_messages = []
     for m in messages:
         if isinstance(m, AIMessage) and not m.content and m.tool_calls:
-            m.content = "Consulting records..." 
+            m.content = "Processing..." 
         clean_messages.append(m)
     
-    # B. Conversion Trigger (The "Closer")
-    human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
-    # Trigger on 2nd message (early hook) and 5th message (deep hook)
-    should_trigger_meeting = human_msg_count in [2, 5]
+    # 2. ANALYZE CONVERSATION HISTORY (The "Brain" Check)
+    # Hum check karenge ke Agent ka AAKHRI sawal kya tha.
     
-    conversion_text = ""
-    if should_trigger_meeting:
-        conversion_text = """
-        [MANDATORY CLOSING]
-        End response with exactly:
+    last_ai_msg = ""
+    for m in reversed(clean_messages):
+        if isinstance(m, AIMessage) and m.content:
+            last_ai_msg = m.content.lower()
+            break
+            
+    # --- DETERMINISTIC FLOW CONTROL (Python Logic > AI Guessing) ---
+    
+    # CASE A: Agar Agent ne pichli baar "Style" pucha tha -> Ab "Timeline" pucho.
+    if "what kind of style" in last_ai_msg or "modern" in last_ai_msg and "?" in last_ai_msg:
+        force_instruction = """
+        [FLOW ENFORCED]
+        The user just answered your question about 'Style'.
+        Your ONLY goal now is to ask about the **Timeline**.
         
-        "Would you like to schedule a call with one of our experts for a more detailed discussion?
-        https://calendly.com/fandlgroupllc/30min"
+        Say exactly:
+        "That is a wonderful choice.
+        
+        How soon are you looking to start this project?"
         """
-
-    # C. Dynamic Persona Prompt (With SMART FORMATTING)
-    common_rules = """
-    *** BRAND RULES ***
-    1. **NO EMOJIS.** Be sophisticated, concise, and professional.
-    2. **FORMATTING - CRITICAL:** - If you present options (e.g., Styles, Atmospheres, Services), YOU MUST use a Vertical Bullet List.
-       - Example:
-         "What kind of atmosphere do you envision?
-         * Calm and Serene
-         * Energetic and Vibrant"
-    3. **LENGTH:** Max 3 sentences per paragraph.
-    4. **FINANCING:** Only mention '8-Months Same-As-Cash'.
-    5. **TIMELINE (STRICT):** NEVER guess specific weeks. ALWAYS say: "Timeline varies by project scope and complexity. We provide a detailed schedule during your consultation."
-    """
-
-    if role == "realtor":
-        system_prompt = f"""
-        You are 'LOFTY', the Strategic Partner for Realtors & Investors at F&L Design Builders.
-        Your goal: Help them sell faster and maximize ROI.
         
-        KNOWLEDGE: {context}
-        {common_rules}
+    # CASE B: Agar Agent ne "Timeline" pucha tha -> Ab "Calendly" do.
+    elif "how soon" in last_ai_msg or "start this project" in last_ai_msg:
+        force_instruction = """
+        [FLOW ENFORCED]
+        The user just answered about the timeline.
+        Your ONLY goal now is to **Close the Deal**.
         
-        *** REALTOR PROTOCOL ***
-        - **Services:** Focus on "Pre-Listing Refresh", "Quick Turnaround", "Curb Appeal".
-        - **Partnership:** Emphasize the **1% Referral Commission**.
-        - **Logic:** Do not ask about "feelings". Ask about "timeline to list" and "budget".
+        Say exactly:
+        "Thank you. Let's schedule a meeting with our Project Manager to discuss this in detail.
         
-        {conversion_text}
+        Please choose a time here: https://calendly.com/fandlgroupllc/30min"
         """
+        
+    # CASE C: Normal Conversation (Start or General Questions)
     else:
-        system_prompt = f"""
-        You are 'LOFTY', the Design Concierge for Homeowners at F&L Design Builders.
-        Your goal: Guide them from Vision to Reality with White-Glove service.
+        # Default instructions (Start Script ONLY if intent detected)
+        force_instruction = """
+        [STANDARD MODE]
+        Answer the user's question using the Retrieved Knowledge.
         
-        KNOWLEDGE: {context}
-        {common_rules}
+        *** CRITICAL TRIGGER ***
+        IF (and ONLY IF) the user explicitly says they want to **start a project**, **renovate**, or **get a quote**:
+        THEN ignore the general info and START THE SCRIPT:
         
-        *** CRITICAL INSTRUCTION ***
-        - The retrieved documents contain a long 'Discovery Questionnaire'. **IGNORE IT.**
-        - You must ONLY ask the 3 questions listed below in the exact order.
-        - Do not ask about 'Atmosphere', 'Lifestyle', or 'Feng Shui' yet. That happens in the meeting.
+        "It's wonderful you're considering a renovation! We can certainly help.
         
-        *** MANDATORY SCRIPT FLOW (Do not deviate) ***
-        
-        STEP 1: If user mentions a project (Kitchen, Bath, etc.), ASK exactly:
-        "What kind of style do you envision for the space?
+        To start, what kind of style do you envision for the space?
         * Modern
         * Traditional
         * Transitional
         * Contemporary"
         
-        STEP 2: Once they answer the style, ASK exactly:
-        "How soon are you looking to start this project?"
+        *** OTHERWISE ***
+        Just answer their question normally (e.g., about Painting, Services, Financing).
+        """
+
+    # 3. CONSTRUCT SYSTEM PROMPT
+    common_rules = """
+    *** BRAND RULES ***
+    1. **NO EMOJIS.** Be sophisticated.
+    2. **FORMAT:** Use Vertical Bullet Points for options.
+    3. **TIMELINE:** NEVER guess specific weeks.
+    4. **FINANCING:** Mention '8-Months Same-As-Cash' if budget comes up.
+    """
+
+    if role == "realtor":
+        system_prompt = f"""
+        You are 'LOFTY' (Realtor Partner).
+        Focus: ROI, Speed, 1% Commission.
+        KNOWLEDGE: {context}
+        {common_rules}
+        """
+    else:
+        system_prompt = f"""
+        You are 'LOFTY' (Homeowner Concierge).
+        KNOWLEDGE: {context}
+        {common_rules}
         
-        STEP 3: Once they answer the timeline, SAY exactly:
-        "Thank you. Let's schedule a meeting with our Project Manager to discuss this in detail.
-        Please choose a time here: https://calendly.com/fandlgroupllc/30min"
-        
-        *** SCENARIO HANDLING ***
-        - **"Status/Login":** Use 'check_project_status' tool.
-        - **"Speak to Human":** Use 'request_immediate_callback' tool.
-        - **"Budget":** Mention 8-Month Financing.
-        
-        {conversion_text}
+        {force_instruction}
         """
 
     final_input = [SystemMessage(content=system_prompt)] + clean_messages
@@ -333,4 +337,5 @@ async def get_app():
     checkpointer = AsyncPostgresSaver(async_pool)
     await checkpointer.setup()
     return workflow.compile(checkpointer=checkpointer)
+
 

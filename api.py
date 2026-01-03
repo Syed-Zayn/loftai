@@ -95,13 +95,80 @@ class PortalLoginRequest(BaseModel):
 
 
 
-# --- STANDARD BUTTONS LIST ---
-DEFAULT_BUTTONS = [
-    QuickReply(label="📅 Book a Consultation", value="I want to schedule a consultation"),
-    QuickReply(label="💬 Talk to Specialist", value="I need to speak to a project manager"),
-    QuickReply(label="📐 Get a Design Quote", value="I want a renovation quote"),
-    QuickReply(label="🏡 Start My Project", value="I want to start a new project")
-]
+# ============================================================
+#  DYNAMIC BUTTON LOGIC (CLIENT'S 8 FLOWS)
+# ============================================================
+
+def get_dynamic_buttons(bot_text: str) -> List[QuickReply]:
+    """
+    Bot ke jawab (text) ko analyze karke sahi buttons select karta hai.
+    Based on Client's FAQ Flows.
+    """
+    text = bot_text.lower()
+
+    # FLOW 1: Greeting
+    if "welcome" in text or "help you today" in text:
+        return [
+            QuickReply(label="🏗 Start a New Project", value="I want to start a new project"),
+            QuickReply(label="🎨 Design Services", value="Tell me about design services"),
+            QuickReply(label="💰 Pricing & Budget", value="How much does it cost?"),
+            QuickReply(label="⏳ Timeline", value="How long does it take?"),
+            QuickReply(label="📞 Speak to Human", value="I want to talk to a human")
+        ]
+
+    # FLOW 2: Start Project -> Type
+    if "type of project" in text or "residential" in text:
+        return [
+            QuickReply(label="🏡 Residential", value="Residential Project"),
+            QuickReply(label="🏢 Commercial", value="Commercial Project"),
+            QuickReply(label="🔄 Renovation", value="Renovation"),
+            QuickReply(label="➕ Addition", value="Home Addition")
+        ]
+
+    # FLOW 2 (Part B): Plans?
+    if "have plans" in text or "design help" in text:
+        return [
+            QuickReply(label="✔ Yes, I have plans", value="I already have plans"),
+            QuickReply(label="✏ No, need design", value="I need design help")
+        ]
+
+    # FLOW 3: Design CTA
+    if "design-build" in text or "architect" in text:
+        return [
+            QuickReply(label="📐 Start Consultation", value="Book a Design Consultation"),
+            QuickReply(label="🏗 View Process", value="How does the process work?")
+        ]
+
+    # FLOW 4: Pricing -> Budget Range
+    if "budget range" in text or "estimated budget" in text:
+        return [
+            QuickReply(label="Under $50K", value="Budget is under $50k"),
+            QuickReply(label="$50K–$150K", value="Budget is $50k-$150k"),
+            QuickReply(label="$150K+", value="Budget is $150k+"),
+            QuickReply(label="Not sure", value="I am not sure about budget")
+        ]
+
+    # FLOW 5: Timeline
+    if "timeline" in text or "5 steps" in text:
+        return [
+            QuickReply(label="📅 Book Consultation", value="Schedule a consultation"),
+            QuickReply(label="📞 Call Specialist", value="Call a specialist")
+        ]
+
+    # FLOW 8: Handoff / CTA
+    if "connect you" in text or "specialist" in text or "consultation" in text:
+        return [
+            QuickReply(label="📅 Book Now", value="Book a meeting"),
+            QuickReply(label="📞 Request Call", value="Request a callback"),
+            QuickReply(label="📧 Send Email", value="Send an email")
+        ]
+
+    # DEFAULT (Fallback)
+    return [
+        QuickReply(label="📅 Book Consultation", value="Book a meeting"),
+        QuickReply(label="💬 Services", value="What services do you offer?"),
+        QuickReply(label="💰 Get Quote", value="Get a quote")
+    ]
 
 # ============================================================
 #  SECTION A: INSTAGRAM AUTOMATION (Async & Background)
@@ -491,11 +558,12 @@ async def chat_endpoint(request: ChatRequest):
 
         if not final_response:
             final_response = "Checking design records... One moment."
+        dynamic_buttons = get_dynamic_buttons(final_response)
 
         return ChatResponse(
             response=final_response,
             actions=["lead_captured"] if tool_executed else [],
-            quick_replies=DEFAULT_BUTTONS
+            quick_replies=dynamic_buttons
         )
 
     except Exception as e:
@@ -509,3 +577,4 @@ async def health_check():
 if __name__ == "__main__":
 
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+

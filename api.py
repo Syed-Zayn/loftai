@@ -69,10 +69,16 @@ app.add_middleware(
 )
 
 # --- 4. DATA MODELS ---
+
+class QuickReply(BaseModel):
+    label: str 
+    value: str
+
 class ChatRequest(BaseModel):
     message: str
     session_id: str 
-    platform: str = "web" 
+    platform: str = "web"
+    quick_replies: List[QuickReply] = []
 
 class ChatResponse(BaseModel):
     response: str
@@ -83,6 +89,17 @@ class PortalRequest(BaseModel):
 
 class PortalLoginRequest(BaseModel):
     email: str
+
+
+
+
+# --- STANDARD BUTTONS LIST ---
+DEFAULT_BUTTONS = [
+    QuickReply(label="📅 Book a Consultation", value="I want to schedule a consultation"),
+    QuickReply(label="💬 Talk to Specialist", value="I need to speak to a project manager"),
+    QuickReply(label="📐 Get a Design Quote", value="I want a renovation quote"),
+    QuickReply(label="🏡 Start My Project", value="I want to start a new project")
+]
 
 # ============================================================
 #  SECTION A: INSTAGRAM AUTOMATION (Async & Background)
@@ -475,7 +492,8 @@ async def chat_endpoint(request: ChatRequest):
 
         return ChatResponse(
             response=final_response,
-            actions=["lead_captured"] if tool_executed else []
+            actions=["lead_captured"] if tool_executed else [],
+            quick_replies=DEFAULT_BUTTONS
         )
 
     except Exception as e:
@@ -489,3 +507,4 @@ async def health_check():
 if __name__ == "__main__":
 
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+

@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Annotated, Literal, TypedDict
 from dotenv import load_dotenv
 
@@ -330,8 +331,35 @@ workflow.add_edge("tools", "agent")
 # --- 7. PRODUCTION COMPILATION ---
 async def get_app():
     db_url = os.getenv("NEON_DB_URL")
-    async_pool = AsyncConnectionPool(conninfo=db_url, max_size=20, kwargs={"autocommit": True})
+    
+    # Connection Arguments (Optimized for Production)
+    connection_kwargs = {
+        "autocommit": True, 
+        "prepare_threshold": 0,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5
+    }
+    
+    # Async Pool (Resilient to disconnects)
+    async_pool = AsyncConnectionPool(
+        conninfo=db_url, 
+        max_size=20, 
+        kwargs=connection_kwargs, 
+        open=False,
+        # --- NEW STABILITY SETTINGS ---
+        min_size=1,          # Keep 1 connection alive
+        max_lifetime=120,    # Refresh connection every 2 mins
+        check=AsyncConnectionPool.check_connection, 
+        timeout=10           
+    )
+    
     await async_pool.open()
     checkpointer = AsyncPostgresSaver(async_pool)
-    await checkpointer.setup()
-    return workflow.compile(checkpointer=checkpointer)
+    await checkpointer.setup() 
+    app = workflow.compile(checkpointer=checkpointer)
+
+    return app
+
+

@@ -14,6 +14,7 @@ from fastapi import Response # For TwiML XML response
 from twilio_client import TwilioManager
 from drive_client import DriveManager
 from fastapi.staticfiles import StaticFiles
+from typing import List, Optional
 # --- CUSTOM MODULES IMPORTS ---
 # Make sure these files exist in the same folder
 from agent_graph import get_app
@@ -78,11 +79,12 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str 
     platform: str = "web"
-    quick_replies: List[QuickReply] = []
+    
 
 class ChatResponse(BaseModel):
     response: str
     actions: list = [] 
+    quick_replies: List[QuickReply] = []
 
 class PortalRequest(BaseModel):
     email: str
@@ -507,4 +509,3 @@ async def health_check():
 if __name__ == "__main__":
 
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
-

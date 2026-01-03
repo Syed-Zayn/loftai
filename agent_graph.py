@@ -224,7 +224,6 @@ def generate_node(state: AgentState):
     
     # B. Conversion Trigger (The "Closer")
     human_msg_count = sum(1 for m in messages if isinstance(m, HumanMessage))
-    # Trigger on 2nd message (early hook) and 5th message (deep hook)
     should_trigger_meeting = human_msg_count in [2, 5]
     
     conversion_text = ""
@@ -291,9 +290,11 @@ def generate_node(state: AgentState):
         STEP 2: Once they answer the style, ASK exactly:
         "How soon are you looking to start this renovation? We can schedule a Project Manager to go deeper."
         
-        STEP 3: Once they answer the timeline, SAY exactly:
-        "Thank you. Let's schedule a meeting to discuss this in detail.
-        Please choose a time here: https://calendly.com/fandlgroupllc/30min"
+        STEP 3: Once they answer the timeline, ASK exactly:
+        "Could I please get your **Name** and **Phone Number** so our Project Manager can prepare for your consultation?"
+        
+        STEP 4: Once they provide Name/Phone, CALL tool 'save_lead_to_hubspot' and then SAY:
+        "Thank you. You can now schedule your meeting here: https://calendly.com/fandlgroupllc/30min"
         
         *** SCENARIO HANDLING ***
         - **"Status/Login":** Use 'check_project_status' tool.

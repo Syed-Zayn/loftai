@@ -66,7 +66,6 @@ def save_lead_to_hubspot(name: str, email: str, phone: str):
     # C. "Call Center" Alert (High-Level Feature)
     if twilio.client:
         alert_body = f"🚀 NEW LEAD: {name} ({phone}). Check HubSpot now."
-        # Assuming sending to client's personal number defined in env
         admin_phone = os.getenv("CLIENT_PERSONAL_PHONE") 
         if admin_phone:
             twilio.send_sms(admin_phone, alert_body)
@@ -115,7 +114,7 @@ def get_secure_upload_link():
     """
     return "Secure Upload Portal: https://forms.google.com/f-and-l-secure-upload"
 
-# --- NEW HIGH-LEVEL TOOLS (Added based on Chat Requests) ---
+# --- NEW HIGH-LEVEL TOOLS ---
 
 @tool
 def check_project_status(email: str):
@@ -125,13 +124,11 @@ def check_project_status(email: str):
     Returns the current Stage (e.g., 'Demolition', 'Finishing') and Google Drive Folder Link.
     Use when user asks: "How is my project going?", "Updates?", "Login".
     """
-    # 1. Search HubSpot for Active Deal
-    deal_info = hubspot.get_deal_by_email(email) # Assumes this method exists in your updated HubSpot manager
+    deal_info = hubspot.get_deal_by_email(email)
     
     if not deal_info:
         return "No active project found for this email. Please check with your Project Manager."
     
-    # 2. Fetch Files from Drive
     files = drive.get_client_files(email)
     file_count = len(files)
     
@@ -162,8 +159,8 @@ tools = [
     generate_quote_and_deal, 
     check_financing_eligibility, 
     get_secure_upload_link,
-    check_project_status,      # NEW
-    request_immediate_callback # NEW
+    check_project_status,      
+    request_immediate_callback 
 ]
 tool_node = ToolNode(tools)
 
@@ -207,8 +204,8 @@ def retrieve_node(state: AgentState):
     else:
         query = f"{last_msg} luxury renovation design style timeline financing process paint of hope"
         
-    # Fetching 6 chunks for deeper context
-    docs = vectorstore.similarity_search(query, k=30)
+    # k=6 is optimal. Higher (30) creates noise and hallucinations.
+    docs = vectorstore.similarity_search(query, k=35)
     context_text = "\n\n".join([f"[Source: {d.metadata.get('source', 'doc')}] {d.page_content}" for d in docs])
     return {"context": context_text}
 
@@ -240,13 +237,18 @@ def generate_node(state: AgentState):
         https://calendly.com/fandlgroupllc/30min"
         """
 
-    # C. Dynamic Persona Prompt
+    # C. Dynamic Persona Prompt (With SMART FORMATTING)
     common_rules = """
     *** BRAND RULES ***
     1. **NO EMOJIS.** Be sophisticated, concise, and professional.
-    2. **FORMAT:** Use Vertical Bullet Points for all lists. Double line break between items.
+    2. **FORMATTING - CRITICAL:** - If you present options (e.g., Styles, Atmospheres, Services), YOU MUST use a Vertical Bullet List.
+       - Example:
+         "What kind of atmosphere do you envision?
+         * Calm and Serene
+         * Energetic and Vibrant"
     3. **LENGTH:** Max 3 sentences per paragraph.
     4. **FINANCING:** Only mention '8-Months Same-As-Cash'.
+    5. **TIMELINE (STRICT):** NEVER guess specific weeks. ALWAYS say: "Timeline varies by project scope and complexity. We provide a detailed schedule during your consultation."
     """
 
     if role == "realtor":

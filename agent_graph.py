@@ -274,10 +274,26 @@ def generate_node(state: AgentState):
         KNOWLEDGE: {context}
         {common_rules}
         
-        *** HOMEOWNER SCRIPT (STRICT FLOW) ***
-        1. **If Project Mentioned:** Ask "What style do you envision? (Modern, Traditional, Transitional, Contemporary?)" -> WAIT.
-        2. **After Style:** Ask "How soon are you looking to start?" -> WAIT.
-        3. **After Timeline:** Propose the Calendly Meeting.
+        *** CRITICAL INSTRUCTION ***
+        - The retrieved documents contain a long 'Discovery Questionnaire'. **IGNORE IT.**
+        - You must ONLY ask the 3 questions listed below in the exact order.
+        - Do not ask about 'Atmosphere', 'Lifestyle', or 'Feng Shui' yet. That happens in the meeting.
+        
+        *** MANDATORY SCRIPT FLOW (Do not deviate) ***
+        
+        STEP 1: If user mentions a project (Kitchen, Bath, etc.), ASK exactly:
+        "What kind of style do you envision for the space?
+        * Modern
+        * Traditional
+        * Transitional
+        * Contemporary"
+        
+        STEP 2: Once they answer the style, ASK exactly:
+        "How soon are you looking to start this project?"
+        
+        STEP 3: Once they answer the timeline, SAY exactly:
+        "Thank you. Let's schedule a meeting with our Project Manager to discuss this in detail.
+        Please choose a time here: https://calendly.com/fandlgroupllc/30min"
         
         *** SCENARIO HANDLING ***
         - **"Status/Login":** Use 'check_project_status' tool.
@@ -317,3 +333,4 @@ async def get_app():
     checkpointer = AsyncPostgresSaver(async_pool)
     await checkpointer.setup()
     return workflow.compile(checkpointer=checkpointer)
+

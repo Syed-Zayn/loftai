@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import Annotated, Literal, TypedDict
 from dotenv import load_dotenv
 
@@ -153,7 +154,7 @@ def request_immediate_callback(phone: str, query: str):
         return "Priority Callback Requested. A Senior Project Manager will call you within 15 minutes."
     return "Request logged. Our team will contact you shortly."
 
-# REGISTER ALL 6 TOOLS
+# REGISTER ALL 6 TOOLS (Critical for full functionality)
 tools = [
     save_lead_to_hubspot, 
     generate_quote_and_deal, 
@@ -216,6 +217,10 @@ def classify_intent_node(state: AgentState):
     # Login / Portal Check
     if any(x in last_msg for x in ["login", "status", "portal", "files"]):
         return {"intent": "login"}
+        
+    # Flow 2b: Follow up on Plans
+    if "plans" in last_msg or "design help" in last_msg:
+        return {"intent": "start_project_followup"}
 
     # Default / General Query
     return {"intent": "general"}
@@ -223,8 +228,8 @@ def classify_intent_node(state: AgentState):
 # NODE 2: Contextual Retrieval
 def retrieve_node(state: AgentState):
     last_msg = state["messages"][-1].content
-    # Retrieve RAG context
-    docs = vectorstore.similarity_search(last_msg, k=30) 
+    # Retrieve RAG context from Pinecone
+    docs = vectorstore.similarity_search(last_msg, k=2) 
     context_text = "\n".join([d.page_content for d in docs])
     return {"context": context_text}
 
@@ -255,11 +260,15 @@ def generate_node(state: AgentState):
         **FLOW: Start a New Project**
         User wants to build or renovate.
         1. Acknowledge excitement.
-        2. Ask: "Great! What type of project are you planning? (Residential, Commercial, Renovation, or Addition?)"
-        3. If they answer type, Ask: "Do you already have plans, or do you need design help?"
-        4. Offer to book a consultation.
+        2. Ask EXACTLY: "Great! What type of project are you planning? (Residential, Commercial, Renovation, or Addition?)"
         """
         
+    elif intent == "start_project_followup":
+        prompt = f"""{base_instruction}
+        **FLOW: Plans Check**
+        Ask EXACTLY: "Do you already have plans, or do you need design help?"
+        """
+
     elif intent == "design":
         prompt = f"""{base_instruction}
         **FLOW: Design Services**
@@ -277,7 +286,7 @@ def generate_node(state: AgentState):
         - We offer value-engineering to stay in budget.
         - No hidden fees. All costs discussed upfront.
         - Mention: We offer **8-Months Same-As-Cash Financing**.
-        - ASK: "Do you have an estimated budget range? (Under $50k, $50k-150k, $150k+)"
+        - Ask EXACTLY: "Do you have an estimated budget range?"
         """
 
     elif intent == "timeline":
@@ -361,7 +370,7 @@ workflow.add_edge("tools", "agent")
 async def get_app():
     db_url = os.getenv("NEON_DB_URL")
     
-    # Connection Arguments (Optimized for Production)
+    # Connection Arguments (Optimized for Production to prevent Crashes)
     connection_kwargs = {
         "autocommit": True, 
         "prepare_threshold": 0,
@@ -377,7 +386,7 @@ async def get_app():
         max_size=20, 
         kwargs=connection_kwargs, 
         open=False,
-        # --- NEW STABILITY SETTINGS ---
+        # --- STABILITY SETTINGS ---
         min_size=1,          # Keep 1 connection alive
         max_lifetime=120,    # Refresh connection every 2 mins
         check=AsyncConnectionPool.check_connection, 
